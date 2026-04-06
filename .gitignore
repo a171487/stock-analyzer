@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.env
+config/secrets.json
+cloudflared.exe
+*.bat
+.streamlit/secrets.toml
