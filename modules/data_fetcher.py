@@ -88,14 +88,21 @@ class StockDataFetcher:
     @property
     def info(self) -> Dict[str, Any]:
         if self._info_cache is None:
+            result = {}
             try:
-                self._info_cache = self._yf_ticker.fast_info.__dict__ | self._yf_ticker.info
+                fi = self._yf_ticker.fast_info
+                if fi is not None:
+                    result.update({k: v for k, v in fi.__dict__.items() if v is not None})
             except Exception:
-                try:
-                    self._info_cache = self._yf_ticker.info
-                except Exception:
-                    self._info_cache = {}
-        return self._info_cache
+                pass
+            try:
+                raw = self._yf_ticker.info
+                if raw and isinstance(raw, dict):
+                    result.update(raw)
+            except Exception:
+                pass
+            self._info_cache = result
+        return self._info_cache or {}
 
     def get_company_name(self) -> str:
         name = self.info.get('longName') or self.info.get('shortName') or self.ticker_symbol
