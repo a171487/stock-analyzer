@@ -56,10 +56,29 @@ class StockDataFetcher:
     # 基本驗證
     # ────────────────────────────────────────────
     def is_valid(self) -> bool:
+        # 1. 先嘗試 fast_info（最快）
+        try:
+            fi = self._yf_ticker.fast_info
+            price = getattr(fi, 'last_price', None) or getattr(fi, 'previous_close', None)
+            if price and float(price) > 0:
+                return True
+        except Exception:
+            pass
+
+        # 2. 嘗試 info dict
         try:
             info = self.info
-            return bool(info and (info.get('regularMarketPrice') or info.get('currentPrice')
-                                  or info.get('previousClose') or info.get('longName')))
+            if info and (info.get('regularMarketPrice') or info.get('currentPrice')
+                         or info.get('previousClose') or info.get('longName')
+                         or info.get('symbol') or info.get('shortName')):
+                return True
+        except Exception:
+            pass
+
+        # 3. 最終備援：抓近5天歷史股價確認是否存在
+        try:
+            hist = self._yf_ticker.history(period='5d')
+            return hist is not None and not hist.empty
         except Exception:
             return False
 
