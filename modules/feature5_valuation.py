@@ -216,7 +216,7 @@ class ValuationAnalyzer:
             debt  = wacc_result['total_debt'] or 0
             equity_v = equity_v + cash - debt
 
-            shares = _sf(self._ticker.info.get('sharesOutstanding')) or 1
+            shares = _sf((self._ticker.info or {}).get('sharesOutstanding')) or 1
             iv_per_share = equity_v / shares if shares > 0 else None
 
             scenarios[label] = {
@@ -394,7 +394,7 @@ class ValuationAnalyzer:
                     break
             if ni_row is None:
                 return []
-            shares = _sf(self._ticker.info.get('sharesOutstanding')) if self._ticker.info else None
+            shares = _sf((self._ticker.info or {}).get('sharesOutstanding'))
             if not shares or shares <= 0:
                 return []
             for col in sorted(fin.columns):
@@ -458,7 +458,7 @@ class ValuationAnalyzer:
             'mkt_cap':   _sf(val.get('market_cap')),
         }
         try:
-            dy = _sf(self._ticker.info.get('dividendYield'))
+            dy = _sf((self._ticker.info or {}).get('dividendYield'))
             subject['div_yield'] = round(dy * 100, 2) if dy else None
         except Exception:
             pass
@@ -496,7 +496,7 @@ class ValuationAnalyzer:
             return {'available': False}
 
         fcf_base = dcf_result['fcf_latest']
-        shares   = _sf(self._ticker.info.get('sharesOutstanding')) or 1
+        shares   = _sf((self._ticker.info or {}).get('sharesOutstanding')) or 1
 
         wacc_center = wacc_result['wacc']
         g_center    = 0.07   # 基礎投影成長率
