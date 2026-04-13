@@ -75,10 +75,35 @@ class StockDataFetcher:
         except Exception:
             pass
 
-        # 3. 最終備援：抓近5天歷史股價確認是否存在
+        # 3. yfinance 歷史股價備援
         try:
             hist = self._yf_ticker.history(period='5d')
-            return hist is not None and not hist.empty
+            if hist is not None and not hist.empty:
+                return True
+        except Exception:
+            pass
+
+        # 4. 台股專用：FinMind API 驗證（Yahoo Finance 未收錄的 ETF）
+        if self.stock_type == 'TW':
+            return self._validate_via_finmind()
+
+        return False
+
+    def _validate_via_finmind(self) -> bool:
+        """用 FinMind 驗證台股/ETF 是否存在"""
+        try:
+            resp = requests.get(
+                "https://api.finmindtrade.com/api/v4/data",
+                params={
+                    "dataset": "TaiwanStockPrice",
+                    "data_id": self.stock_id,
+                    "start_date": "2024-01-01",
+                    "limit": 1,
+                },
+                timeout=8,
+            )
+            data = resp.json()
+            return bool(data.get('data'))
         except Exception:
             return False
 
