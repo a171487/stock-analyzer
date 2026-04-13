@@ -6,6 +6,7 @@
 import streamlit as st
 import sys
 import os
+import re
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1243,8 +1244,12 @@ def run_feature1(stock_input: str):
 
         if not fetcher.is_valid():
             progress.empty()
-            st.error(f"❌ 找不到股票代碼「{stock_input}」，請確認輸入是否正確。")
-            st.info("台股請輸入4碼數字（如 2330），美股請輸入英文代碼（如 AAPL）")
+            st.error(f"❌ 找不到股票代碼「{stock_input}」，Yahoo Finance 查無此代碼。")
+            is_tw = re.match(r'^\d{4,6}[A-Z]?$', stock_input.strip().upper())
+            if is_tw:
+                st.info("📌 台股請輸入代碼（如 2330、0050、00919）。部分冷門 ETF 或新上市商品 Yahoo Finance 可能尚未收錄。")
+            else:
+                st.info("📌 美股請輸入英文代碼（如 AAPL、NVDA、TSLA）。")
             return
 
         progress.progress(40, text="✅ 驗證完成，正在擷取財務數據...")
