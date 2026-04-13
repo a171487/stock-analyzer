@@ -19,11 +19,11 @@ from config.peer_stocks import TAIWAN_STOCK_INDUSTRY_MAP, TAIWAN_INDUSTRY_PEERS,
 def detect_stock_type(stock_input: str) -> str:
     """判斷是台股還是美股，回傳 'TW' 或 'US'"""
     stock_input = stock_input.strip().upper()
-    # 純數字 4~6 碼 → 台股
-    if re.match(r'^\d{4,6}$', stock_input):
-        return 'TW'
     # 已有 .TW 或 .TWO → 台股
     if stock_input.endswith('.TW') or stock_input.endswith('.TWO'):
+        return 'TW'
+    # 台股/ETF：4~6 碼數字，結尾可選一個英文字母（如 00631L、00632R、00981A）
+    if re.match(r'^\d{4,6}[A-Z]?$', stock_input):
         return 'TW'
     return 'US'
 

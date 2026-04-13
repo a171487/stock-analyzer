@@ -1841,6 +1841,42 @@ def _display_feature5(fetcher, result: dict, charts, analyzer, ai_report: Option
 
 
 # ───────────────────────────────────────────────
+# 觀察清單（所有用戶共用同一份，伺服器重啟後重置）
+# ───────────────────────────────────────────────
+import json as _json
+
+@st.cache_resource
+def _get_watchlist_store():
+    """傳回共享的 dict 物件，所有 session 共用同一份記憶體"""
+    store = {'stocks': []}
+    try:
+        with open('/tmp/watchlist.json', 'r', encoding='utf-8') as f:
+            store.update(_json.load(f))
+    except Exception:
+        pass
+    return store
+
+def _save_watchlist():
+    try:
+        with open('/tmp/watchlist.json', 'w', encoding='utf-8') as f:
+            _json.dump(_get_watchlist_store(), f, ensure_ascii=False)
+    except Exception:
+        pass
+
+def _watchlist_add(code: str, label: str):
+    store = _get_watchlist_store()
+    code = code.strip().upper()
+    if code and not any(s['code'] == code for s in store['stocks']):
+        store['stocks'].append({'code': code, 'label': label or code})
+        _save_watchlist()
+
+def _watchlist_remove(code: str):
+    store = _get_watchlist_store()
+    store['stocks'] = [s for s in store['stocks'] if s['code'] != code]
+    _save_watchlist()
+
+
+# ───────────────────────────────────────────────
 # Sidebar
 # ───────────────────────────────────────────────
 def build_sidebar() -> tuple[str, str]:
@@ -1858,6 +1894,43 @@ def build_sidebar() -> tuple[str, str]:
         )
 
         run_btn = st.button("開始分析 →", type="primary", use_container_width=True)
+        st.markdown("---")
+
+        # ── 觀察清單 ──
+        st.markdown("**👁 觀察清單**")
+        store = _get_watchlist_store()
+        watchlist = store.get('stocks', [])
+
+        if watchlist:
+            for item in watchlist:
+                col_w1, col_w2 = st.columns([4, 1])
+                with col_w1:
+                    if st.button(item['label'], key=f"wl_{item['code']}",
+                                 use_container_width=True):
+                        st.session_state.stock_input = item['code']
+                        st.session_state.trigger_run = True
+                        st.rerun()
+                with col_w2:
+                    if st.button("✕", key=f"wl_del_{item['code']}",
+                                 help="從清單移除"):
+                        _watchlist_remove(item['code'])
+                        st.rerun()
+        else:
+            st.caption("尚無觀察股票，請在下方新增")
+
+        # 新增到觀察清單
+        with st.expander("＋ 新增股票到清單"):
+            wl_input = st.text_input("股票代碼", placeholder="如 2330 或 AAPL",
+                                     key="wl_add_code")
+            wl_label = st.text_input("顯示名稱（可空白）", placeholder="如 台積電",
+                                     key="wl_add_label")
+            if st.button("加入清單", use_container_width=True, key="wl_add_btn"):
+                if wl_input.strip():
+                    label = wl_label.strip() or wl_input.strip().upper()
+                    _watchlist_add(wl_input.strip(), f"{label} {wl_input.strip().upper()}"
+                                   if wl_label.strip() else wl_input.strip().upper())
+                    st.rerun()
+
         st.markdown("---")
 
         # 功能選單
