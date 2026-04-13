@@ -1427,9 +1427,23 @@ def run_stock_overview(stock_input: str):
                 <b style='color:{sc}'>【{sn}】</b> {sd}</div>""", unsafe_allow_html=True)
 
         st.markdown("---")
+        st.caption("⚠️ 以上為技術面快速概覽，僅供研究參考，不構成投資建議。")
+        st.caption("👈 點選左側「選擇功能」可進行財務健康、產業競爭、隱藏風險或內在價值的深度分析。")
 
-        # ── 機構評等 ──
-        st.markdown('<p class="section-title">🏛 機構評等</p>', unsafe_allow_html=True)
+        # ════════════════════════════════════════════════════
+        # 機構評等（獨立區塊，位於技術快速概覽下方）
+        # ════════════════════════════════════════════════════
+        st.markdown("""
+        <div style='margin-top:32px;padding:18px 22px 4px 22px;
+                    background:#10141c;border-radius:14px;
+                    border:1px solid #2d3436'>
+        <p style='font-size:1.15rem;font-weight:700;color:#5352ed;
+                  border-left:4px solid #5352ed;padding-left:10px;margin:0 0 14px 0'>
+        🏛 機構評等 &amp; 分析師目標價</p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('<p class="section-title" style="display:none">🏛 機構評等</p>',
+                    unsafe_allow_html=True)
 
         # ── 第一排：分析師共識目標價 ──
         _mean_t = info.get('targetMeanPrice')
@@ -1619,9 +1633,8 @@ def run_stock_overview(stock_input: str):
         progress.progress(100)
         progress.empty()
 
-        st.markdown("---")
-        st.caption("⚠️ 以上為技術面快速概覽，僅供研究參考，不構成投資建議。")
-        st.caption("👈 點選左側「選擇功能」可進行財務健康、產業競爭、隱藏風險或內在價值的深度分析。")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption("⚠️ 機構評等資料來源：Yahoo Finance。個別機構目標價需付費資料源（Bloomberg / FactSet），此處顯示分析師共識目標價。")
 
     except Exception as e:
         progress.empty()
@@ -2369,11 +2382,11 @@ def build_sidebar() -> tuple[str, str]:
 def main():
     stock_input, action = build_sidebar()
 
-    # 快速按鈕（熱門股）觸發
+    # 快速按鈕（熱門股/觀察清單）觸發 → 預設顯示概覽
     if st.session_state.get('trigger_run'):
         st.session_state.trigger_run = False
         stock_input = st.session_state.get('stock_input', stock_input)
-        action = st.session_state.get('pending_feature', '財務健康檢查')
+        action = st.session_state.get('pending_feature', '概覽')
         st.session_state.pop('pending_feature', None)
 
     # Dashboard 功能卡片點擊：有 pending_feature 但還沒輸入股票 → 提示輸入
