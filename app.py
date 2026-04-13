@@ -1276,6 +1276,27 @@ def run_stock_overview(stock_input: str):
 
         progress.progress(70, text="✅ 正在取得機構資料...")
 
+        # ── 取得中文股票名稱（台股）──
+        chinese_name = ''
+        if is_tw:
+            from config.peer_stocks import TAIWAN_INDUSTRY_PEERS as _PEERS
+            _tw_names = {}
+            for _ind_data in _PEERS.values():
+                _tw_names.update(_ind_data.get('names', {}))
+            chinese_name = _tw_names.get(fetcher.ticker_symbol, '')
+            if not chinese_name:
+                try:
+                    _r = _req.get(
+                        "https://api.finmindtrade.com/api/v4/data",
+                        params={"dataset": "TaiwanStockInfo",
+                                "data_id": fetcher.stock_id},
+                        timeout=6)
+                    _d = _r.json().get('data', [])
+                    if _d:
+                        chinese_name = _d[0].get('stock_name', '')
+                except Exception:
+                    pass
+
         # ── 頁首 ──
         col_h1, col_h2, col_h3, col_h4 = st.columns([3, 1.2, 1.2, 1.2])
         price_now  = float(hist['Close'].iloc[-1])
@@ -1285,6 +1306,11 @@ def run_stock_overview(stock_input: str):
         chg_color  = GREEN if chg_pct >= 0 else RED
 
         with col_h1:
+            if is_tw and chinese_name:
+                st.markdown(
+                    f'<p style="font-size:1.5rem;font-weight:900;color:#dfe6e9;margin:0 0 2px 0">'
+                    f'{chinese_name}</p>',
+                    unsafe_allow_html=True)
             st.markdown(f'<p class="main-title">📈 {name}</p>', unsafe_allow_html=True)
             st.markdown(
                 f'<p class="main-subtitle">{fetcher.ticker_symbol} · 技術快速概覽</p>',
@@ -1407,27 +1433,28 @@ def run_stock_overview(stock_input: str):
         col_i1, col_i2 = st.columns(2)
 
         with col_i1:
-            # 海外分析師評等 (yfinance)
+            # 海外分析師評等 (yfinance recommendations_summary)
+            _rec_shown = False
             try:
-                recs = fetcher._yf_ticker.recommendations
-                if recs is not None and not recs.empty:
-                    counts = {'買入': 0, '持有': 0, '賣出': 0}
-                    for _, row in recs.tail(15).iterrows():
-                        g = str(row.get('To Grade', row.get('toGrade', ''))).upper()
-                        if any(x in g for x in ['BUY', 'OUTPERFORM', 'OVERWEIGHT', 'STRONG BUY']):
-                            counts['買入'] += 1
-                        elif any(x in g for x in ['SELL', 'UNDERPERFORM', 'UNDERWEIGHT']):
-                            counts['賣出'] += 1
-                        elif g:
-                            counts['持有'] += 1
-                    total = sum(counts.values())
+                rec_sum = fetcher._yf_ticker.recommendations_summary
+                if rec_sum is not None and not rec_sum.empty:
+                    _row = rec_sum.iloc[0]
+                    sb   = int(_row.get('strongBuy',  0) or 0)
+                    b    = int(_row.get('buy',        0) or 0)
+                    h    = int(_row.get('hold',       0) or 0)
+                    s    = int(_row.get('sell',       0) or 0)
+                    ss   = int(_row.get('strongSell', 0) or 0)
+                    buy_t  = sb + b
+                    sell_t = s + ss
+                    total  = buy_t + h + sell_t
                     if total > 0:
-                        st.markdown("**海外機構評等（近期彙總）**")
+                        _rec_shown = True
+                        st.markdown("**海外機構評等（本月彙總）**")
                         rc = st.columns(3)
                         for c, (lbl, cnt, clr) in zip(rc, [
-                            ('買入', counts['買入'], GREEN),
-                            ('持有', counts['持有'], YELLOW),
-                            ('賣出', counts['賣出'], RED),
+                            ('買入', buy_t, GREEN),
+                            ('持有', h,     YELLOW),
+                            ('賣出', sell_t, RED),
                         ]):
                             with c:
                                 pct = cnt / total * 100
@@ -1438,11 +1465,50 @@ def run_stock_overview(stock_input: str):
                                     <div style='font-size:1.6rem;font-weight:800;color:{clr}'>{cnt}</div>
                                     <div style='font-size:0.75rem;color:{clr}'>{pct:.0f}%</div>
                                 </div>""", unsafe_allow_html=True)
-                    else:
-                        st.info("暫無海外機構評等資料")
-                else:
-                    st.info("暫無海外機構評等資料")
             except Exception:
+                pass
+
+            if not _rec_shown:
+                # fallback: recommendations dataframe
+                try:
+                    recs = fetcher._yf_ticker.recommendations
+                    if recs is not None and not recs.empty:
+                        counts = {'買入': 0, '持有': 0, '賣出': 0}
+                        for _, rrow in recs.tail(20).iterrows():
+                            g = ''
+                            for col_name in ['To Grade', 'toGrade', 'action', 'Action']:
+                                if col_name in rrow.index:
+                                    g = str(rrow[col_name]).upper()
+                                    break
+                            if any(x in g for x in ['BUY','OUTPERFORM','OVERWEIGHT','STRONG BUY','POSITIVE']):
+                                counts['買入'] += 1
+                            elif any(x in g for x in ['SELL','UNDERPERFORM','UNDERWEIGHT','NEGATIVE']):
+                                counts['賣出'] += 1
+                            elif g and g not in ('NAN', ''):
+                                counts['持有'] += 1
+                        total = sum(counts.values())
+                        if total > 0:
+                            _rec_shown = True
+                            st.markdown("**海外機構評等（近期彙總）**")
+                            rc = st.columns(3)
+                            for c, (lbl, cnt, clr) in zip(rc, [
+                                ('買入', counts['買入'], GREEN),
+                                ('持有', counts['持有'], YELLOW),
+                                ('賣出', counts['賣出'], RED),
+                            ]):
+                                with c:
+                                    pct = cnt / total * 100
+                                    st.markdown(f"""
+                                    <div style='background:{clr}15;border:1px solid {clr}50;
+                                                border-radius:8px;padding:10px;text-align:center'>
+                                        <div style='font-size:0.75rem;color:#aaa'>{lbl}</div>
+                                        <div style='font-size:1.6rem;font-weight:800;color:{clr}'>{cnt}</div>
+                                        <div style='font-size:0.75rem;color:{clr}'>{pct:.0f}%</div>
+                                    </div>""", unsafe_allow_html=True)
+                except Exception:
+                    pass
+
+            if not _rec_shown:
                 st.info("暫無海外機構評等資料")
 
         with col_i2:
@@ -1463,39 +1529,29 @@ def run_stock_overview(stock_input: str):
                         df_i = pd.DataFrame(data)
                         recent_dates = sorted(df_i['date'].unique())[-5:]
                         df_r = df_i[df_i['date'].isin(recent_dates)]
-                        inst_map = {'Foreign_Investor': '外資',
-                                    'Investment_Trust': '投信',
-                                    'Dealer': '自營商'}
-                        # FinMind name might be Chinese directly
-                        name_map2 = {'外資': '外資', '投信': '投信', '自營商': '自營商'}
-                        inst_map.update(name_map2)
 
-                        st.markdown("**台灣三大法人近5日買賣超（張）**")
-                        inst_cols = st.columns(3)
-                        found = False
-                        for eng, chi in [('Foreign_Investor', '外資'),
-                                         ('Investment_Trust', '投信'),
-                                         ('Dealer', '自營商')]:
-                            rows = df_r[df_r['name'].isin([eng, chi])]
-                            if rows.empty:
-                                continue
-                            found = True
-                            net = int(rows['buy'].sum() - rows['sell'].sum())
-                            clr = GREEN if net > 0 else RED
-                        if not found:
-                            # Try with Chinese names directly
-                            for chi in ['外資', '投信', '自營商']:
-                                rows = df_r[df_r['name'] == chi]
-
+                        # FinMind 欄位名稱可能是中文，如 '外資及陸資'、'投信'、'自營商(自行買賣)'
+                        # 用 str.contains 做模糊比對，避免完整名稱不符
                         inst_result = {}
-                        for eng, chi in [('Foreign_Investor', '外資'),
-                                         ('Investment_Trust', '投信'),
-                                         ('Dealer', '自營商')]:
-                            rows = df_r[df_r['name'].isin([eng, chi])]
+                        for display_name, pattern, exclude in [
+                            ('外資', '外資', '自營商'),
+                            ('投信', '投信', None),
+                            ('自營商', '自營商', '外資'),
+                        ]:
+                            mask = df_r['name'].str.contains(pattern, na=False)
+                            if exclude:
+                                mask = mask & ~df_r['name'].str.contains(exclude, na=False)
+                            rows = df_r[mask]
                             if not rows.empty:
-                                inst_result[chi] = int(rows['buy'].sum() - rows['sell'].sum())
+                                buy_col  = 'buy'  if 'buy'  in rows.columns else rows.columns[3]
+                                sell_col = 'sell' if 'sell' in rows.columns else rows.columns[4]
+                                net = int(rows[buy_col].sum() - rows[sell_col].sum())
+                                inst_result[display_name] = net
 
                         if inst_result:
+                            latest_date = recent_dates[-1]
+                            st.markdown(f"**台灣三大法人近5日買賣超（張）** <span style='font-size:0.72rem;color:#aaa'>截至 {latest_date}</span>",
+                                        unsafe_allow_html=True)
                             i_cols = st.columns(len(inst_result))
                             for c, (inv, net) in zip(i_cols, inst_result.items()):
                                 clr = GREEN if net > 0 else RED
