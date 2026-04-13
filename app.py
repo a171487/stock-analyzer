@@ -1846,39 +1846,36 @@ def _display_feature5(fetcher, result: dict, charts, analyzer, ai_report: Option
 
 
 # ───────────────────────────────────────────────
-# 觀察清單（所有用戶共用同一份，伺服器重啟後重置）
+# 觀察清單（所有用戶共用同一份）
 # ───────────────────────────────────────────────
-import json as _json
+import json as _json, os as _os
 
-@st.cache_resource
-def _get_watchlist_store():
-    """傳回共享的 dict 物件，所有 session 共用同一份記憶體"""
-    store = {'stocks': []}
+_WL_FILE = '/tmp/wl.json'
+
+def _wl_load() -> list:
     try:
-        with open('/tmp/watchlist.json', 'r', encoding='utf-8') as f:
-            store.update(_json.load(f))
+        with open(_WL_FILE, 'r', encoding='utf-8') as f:
+            return _json.load(f)
     except Exception:
-        pass
-    return store
+        return []
 
-def _save_watchlist():
+def _wl_save(lst: list):
     try:
-        with open('/tmp/watchlist.json', 'w', encoding='utf-8') as f:
-            _json.dump(_get_watchlist_store(), f, ensure_ascii=False)
+        with open(_WL_FILE, 'w', encoding='utf-8') as f:
+            _json.dump(lst, f, ensure_ascii=False)
     except Exception:
         pass
 
 def _watchlist_add(code: str, label: str):
-    store = _get_watchlist_store()
+    lst = _wl_load()
     code = code.strip().upper()
-    if code and not any(s['code'] == code for s in store['stocks']):
-        store['stocks'].append({'code': code, 'label': label or code})
-        _save_watchlist()
+    if code and not any(s['code'] == code for s in lst):
+        lst.append({'code': code, 'label': label or code})
+        _wl_save(lst)
 
 def _watchlist_remove(code: str):
-    store = _get_watchlist_store()
-    store['stocks'] = [s for s in store['stocks'] if s['code'] != code]
-    _save_watchlist()
+    lst = [s for s in _wl_load() if s['code'] != code]
+    _wl_save(lst)
 
 
 # ───────────────────────────────────────────────
@@ -1903,8 +1900,7 @@ def build_sidebar() -> tuple[str, str]:
 
         # ── 觀察清單 ──
         st.markdown("**👁 觀察清單**")
-        store = _get_watchlist_store()
-        watchlist = store.get('stocks', [])
+        watchlist = _wl_load()
 
         if watchlist:
             for item in watchlist:
