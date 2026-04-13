@@ -1229,6 +1229,326 @@ def _display_feature2(fetcher, result: dict, charts):
 
 
 # ───────────────────────────────────────────────
+# 股票快速概覽（點「開始分析」後的預設頁面）
+# ───────────────────────────────────────────────
+def run_stock_overview(stock_input: str):
+    from modules.data_fetcher import StockDataFetcher
+    from modules.charts_overview import (
+        get_bb_signal, get_ma_status, get_macd_signal, get_kd_signal,
+        plot_bollinger_chart, plot_ma_chart, plot_macd_chart, plot_kd_chart,
+        GREEN, RED, YELLOW, BLUE, ORANGE,
+    )
+    import requests as _req
+    from datetime import datetime, timedelta
+
+    progress = st.progress(0, text="⏳ 正在取得資料...")
+
+    try:
+        fetcher = StockDataFetcher(stock_input)
+        progress.progress(15, text="✅ 連線成功，驗證股票中...")
+
+        if not fetcher.is_valid():
+            progress.empty()
+            is_tw_fmt = re.match(r'^\d{4,6}[A-Z]?$', stock_input.strip().upper())
+            st.error(f"❌ 找不到股票代碼「{stock_input}」，Yahoo Finance 查無此代碼。")
+            if is_tw_fmt:
+                st.info("📌 台股請輸入代碼（如 2330、0050、00919）。部分冷門 ETF Yahoo Finance 可能尚未收錄。")
+            else:
+                st.info("📌 美股請輸入英文代碼（如 AAPL、NVDA、TSLA）。")
+            return
+
+        hist = fetcher.get_historical_prices(period='1y')
+        progress.progress(40, text="✅ 正在計算技術指標...")
+
+        if hist is None or len(hist) < 30:
+            st.warning("⚠️ 歷史資料不足（< 30 筆），無法進行技術分析。")
+            return
+
+        name     = fetcher.get_company_name()
+        is_tw    = fetcher.stock_type == 'TW'
+        ccy      = '' if is_tw else '$'
+        info     = fetcher.info or {}
+
+        bb_signal   = get_bb_signal(hist)
+        ma_status   = get_ma_status(hist)
+        macd_signal = get_macd_signal(hist)
+        kd_signal   = get_kd_signal(hist)
+
+        progress.progress(70, text="✅ 正在取得機構資料...")
+
+        # ── 頁首 ──
+        col_h1, col_h2, col_h3, col_h4 = st.columns([3, 1.2, 1.2, 1.2])
+        price_now  = float(hist['Close'].iloc[-1])
+        price_prev = float(hist['Close'].iloc[-2])
+        chg_pts    = price_now - price_prev
+        chg_pct    = chg_pts / price_prev * 100
+        chg_color  = GREEN if chg_pct >= 0 else RED
+
+        with col_h1:
+            st.markdown(f'<p class="main-title">📈 {name}</p>', unsafe_allow_html=True)
+            st.markdown(
+                f'<p class="main-subtitle">{fetcher.ticker_symbol} · 技術快速概覽</p>',
+                unsafe_allow_html=True)
+        with col_h2:
+            st.markdown(f"""
+            <div style='background:{chg_color}18;border:1.5px solid {chg_color};
+                        border-radius:10px;padding:12px;text-align:center'>
+                <div style='font-size:0.72rem;color:#aaa'>目前股價</div>
+                <div style='font-size:1.5rem;font-weight:800;color:{chg_color}'>{ccy}{price_now:,.2f}</div>
+                <div style='font-size:0.8rem;color:{chg_color}'>{chg_pts:+.2f} ({chg_pct:+.1f}%)</div>
+            </div>""", unsafe_allow_html=True)
+        with col_h3:
+            vol = info.get('volume') or info.get('regularMarketVolume') or info.get('_volume')
+            if vol:
+                vol_str = f"{int(vol)//1000}千張" if is_tw else f"{int(vol)/1e6:.1f}M"
+            else:
+                vol_str = "N/A"
+            st.markdown(f"""
+            <div style='background:#1a1f2e;border:1px solid #2d3436;
+                        border-radius:10px;padding:12px;text-align:center'>
+                <div style='font-size:0.72rem;color:#aaa'>成交量</div>
+                <div style='font-size:1.2rem;font-weight:700;color:#dfe6e9'>{vol_str}</div>
+            </div>""", unsafe_allow_html=True)
+        with col_h4:
+            mc = info.get('marketCap')
+            if mc:
+                mc_str = (f"{mc/1e12:.2f}兆" if mc >= 1e12 else f"{mc/1e8:.0f}億") if is_tw else f"${mc/1e9:.1f}B"
+            else:
+                mc_str = "N/A"
+            st.markdown(f"""
+            <div style='background:#1a1f2e;border:1px solid #2d3436;
+                        border-radius:10px;padding:12px;text-align:center'>
+                <div style='font-size:0.72rem;color:#aaa'>市值</div>
+                <div style='font-size:1.2rem;font-weight:700;color:#dfe6e9'>{mc_str}</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("")
+
+        # ── 四大訊號摘要卡片 ──
+        sig_items = [
+            ("布林通道", bb_signal),
+            ("均線狀態", (ma_status['summary'], "", ma_status['color'])),
+            ("MACD",     macd_signal),
+            ("KD 指標",  kd_signal),
+        ]
+        s_cols = st.columns(4)
+        for col, (label, sig) in zip(s_cols, sig_items):
+            sn, sd, sc = sig
+            with col:
+                st.markdown(f"""
+                <div style='background:{sc}18;border:1.5px solid {sc};
+                            border-radius:10px;padding:10px;text-align:center'>
+                    <div style='font-size:0.72rem;color:#aaa'>{label}</div>
+                    <div style='font-size:0.95rem;font-weight:700;color:{sc}'>{sn}</div>
+                </div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── 布林通道 ──
+        st.markdown('<p class="section-title">📊 布林通道 (Bollinger Bands)</p>',
+                    unsafe_allow_html=True)
+        st.plotly_chart(plot_bollinger_chart(hist, bb_signal), use_container_width=True)
+        sn, sd, sc = bb_signal
+        st.markdown(f"""<div style='background:{sc}12;border-left:4px solid {sc};
+            border-radius:0 8px 8px 0;padding:9px 15px;margin-bottom:18px'>
+            <b style='color:{sc}'>【{sn}】</b> {sd}</div>""", unsafe_allow_html=True)
+
+        # ── 移動平均線 ──
+        st.markdown('<p class="section-title">📉 移動平均線</p>', unsafe_allow_html=True)
+        st.plotly_chart(plot_ma_chart(hist, ma_status), use_container_width=True)
+
+        # MA 小卡片列
+        mas = ma_status.get('mas', {})
+        ma_cols = st.columns(len(mas))
+        for col, (ma_name, mv) in zip(ma_cols, mas.items()):
+            with col:
+                if mv:
+                    c = GREEN if mv['above'] else RED
+                    lbl = "站上" if mv['above'] else "跌破"
+                    st.markdown(f"""
+                    <div style='background:{c}12;border:1px solid {c}40;border-radius:8px;
+                                padding:7px;text-align:center;margin-bottom:4px'>
+                        <div style='font-size:0.68rem;color:#aaa'>{ma_name}</div>
+                        <div style='font-size:0.85rem;font-weight:700;color:{c}'>{lbl}</div>
+                        <div style='font-size:0.75rem;color:{c}'>{mv["diff_pct"]:+.1f}%</div>
+                        <div style='font-size:0.68rem;color:#888'>{mv["value"]:,.1f}</div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style='background:#1a1f2e;border:1px solid #2d3436;border-radius:8px;
+                                padding:7px;text-align:center;margin-bottom:4px'>
+                        <div style='font-size:0.68rem;color:#aaa'>{ma_name}</div>
+                        <div style='font-size:0.8rem;color:#555'>資料不足</div>
+                    </div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── MACD + KD ──
+        col_macd, col_kd = st.columns(2)
+        with col_macd:
+            st.markdown('<p class="section-title">⚡ MACD</p>', unsafe_allow_html=True)
+            st.plotly_chart(plot_macd_chart(hist, macd_signal), use_container_width=True)
+            sn, sd, sc = macd_signal
+            st.markdown(f"""<div style='background:{sc}12;border-left:4px solid {sc};
+                border-radius:0 8px 8px 0;padding:8px 14px;margin-bottom:12px'>
+                <b style='color:{sc}'>【{sn}】</b> {sd}</div>""", unsafe_allow_html=True)
+        with col_kd:
+            st.markdown('<p class="section-title">🎯 KD 指標</p>', unsafe_allow_html=True)
+            st.plotly_chart(plot_kd_chart(hist, kd_signal), use_container_width=True)
+            sn, sd, sc = kd_signal
+            st.markdown(f"""<div style='background:{sc}12;border-left:4px solid {sc};
+                border-radius:0 8px 8px 0;padding:8px 14px;margin-bottom:12px'>
+                <b style='color:{sc}'>【{sn}】</b> {sd}</div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── 機構評等 ──
+        st.markdown('<p class="section-title">🏛 機構評等</p>', unsafe_allow_html=True)
+        col_i1, col_i2 = st.columns(2)
+
+        with col_i1:
+            # 海外分析師評等 (yfinance)
+            try:
+                recs = fetcher._yf_ticker.recommendations
+                if recs is not None and not recs.empty:
+                    counts = {'買入': 0, '持有': 0, '賣出': 0}
+                    for _, row in recs.tail(15).iterrows():
+                        g = str(row.get('To Grade', row.get('toGrade', ''))).upper()
+                        if any(x in g for x in ['BUY', 'OUTPERFORM', 'OVERWEIGHT', 'STRONG BUY']):
+                            counts['買入'] += 1
+                        elif any(x in g for x in ['SELL', 'UNDERPERFORM', 'UNDERWEIGHT']):
+                            counts['賣出'] += 1
+                        elif g:
+                            counts['持有'] += 1
+                    total = sum(counts.values())
+                    if total > 0:
+                        st.markdown("**海外機構評等（近期彙總）**")
+                        rc = st.columns(3)
+                        for c, (lbl, cnt, clr) in zip(rc, [
+                            ('買入', counts['買入'], GREEN),
+                            ('持有', counts['持有'], YELLOW),
+                            ('賣出', counts['賣出'], RED),
+                        ]):
+                            with c:
+                                pct = cnt / total * 100
+                                st.markdown(f"""
+                                <div style='background:{clr}15;border:1px solid {clr}50;
+                                            border-radius:8px;padding:10px;text-align:center'>
+                                    <div style='font-size:0.75rem;color:#aaa'>{lbl}</div>
+                                    <div style='font-size:1.6rem;font-weight:800;color:{clr}'>{cnt}</div>
+                                    <div style='font-size:0.75rem;color:{clr}'>{pct:.0f}%</div>
+                                </div>""", unsafe_allow_html=True)
+                    else:
+                        st.info("暫無海外機構評等資料")
+                else:
+                    st.info("暫無海外機構評等資料")
+            except Exception:
+                st.info("暫無海外機構評等資料")
+
+        with col_i2:
+            if is_tw:
+                # 台灣三大法人
+                try:
+                    end_d   = datetime.today().strftime('%Y-%m-%d')
+                    start_d = (datetime.today() - timedelta(days=20)).strftime('%Y-%m-%d')
+                    resp = _req.get(
+                        "https://api.finmindtrade.com/api/v4/data",
+                        params={"dataset": "TaiwanStockInstitutionalInvestors",
+                                "data_id": fetcher.stock_id,
+                                "start_date": start_d, "end_date": end_d},
+                        timeout=8,
+                    )
+                    data = resp.json().get('data', [])
+                    if data:
+                        df_i = pd.DataFrame(data)
+                        recent_dates = sorted(df_i['date'].unique())[-5:]
+                        df_r = df_i[df_i['date'].isin(recent_dates)]
+                        inst_map = {'Foreign_Investor': '外資',
+                                    'Investment_Trust': '投信',
+                                    'Dealer': '自營商'}
+                        # FinMind name might be Chinese directly
+                        name_map2 = {'外資': '外資', '投信': '投信', '自營商': '自營商'}
+                        inst_map.update(name_map2)
+
+                        st.markdown("**台灣三大法人近5日買賣超（張）**")
+                        inst_cols = st.columns(3)
+                        found = False
+                        for eng, chi in [('Foreign_Investor', '外資'),
+                                         ('Investment_Trust', '投信'),
+                                         ('Dealer', '自營商')]:
+                            rows = df_r[df_r['name'].isin([eng, chi])]
+                            if rows.empty:
+                                continue
+                            found = True
+                            net = int(rows['buy'].sum() - rows['sell'].sum())
+                            clr = GREEN if net > 0 else RED
+                        if not found:
+                            # Try with Chinese names directly
+                            for chi in ['外資', '投信', '自營商']:
+                                rows = df_r[df_r['name'] == chi]
+
+                        inst_result = {}
+                        for eng, chi in [('Foreign_Investor', '外資'),
+                                         ('Investment_Trust', '投信'),
+                                         ('Dealer', '自營商')]:
+                            rows = df_r[df_r['name'].isin([eng, chi])]
+                            if not rows.empty:
+                                inst_result[chi] = int(rows['buy'].sum() - rows['sell'].sum())
+
+                        if inst_result:
+                            i_cols = st.columns(len(inst_result))
+                            for c, (inv, net) in zip(i_cols, inst_result.items()):
+                                clr = GREEN if net > 0 else RED
+                                with c:
+                                    st.markdown(f"""
+                                    <div style='background:{clr}15;border:1px solid {clr}50;
+                                                border-radius:8px;padding:10px;text-align:center'>
+                                        <div style='font-size:0.75rem;color:#aaa'>{inv}</div>
+                                        <div style='font-size:1.1rem;font-weight:800;color:{clr}'>{net:+,}</div>
+                                        <div style='font-size:0.7rem;color:#aaa'>張</div>
+                                    </div>""", unsafe_allow_html=True)
+                        else:
+                            st.info("三大法人資料暫無")
+                    else:
+                        st.info("三大法人資料暫無（FinMind）")
+                except Exception:
+                    st.info("三大法人資料暫無")
+            else:
+                # US: 近期評等異動
+                try:
+                    ud = fetcher._yf_ticker.upgrades_downgrades
+                    if ud is not None and not ud.empty:
+                        st.markdown("**海外機構近期評等異動**")
+                        for _, row in ud.head(8).iterrows():
+                            firm  = row.get('Firm', '')
+                            to_g  = str(row.get('ToGrade', ''))
+                            from_g = str(row.get('FromGrade', ''))
+                            clr = GREEN if any(x in to_g.upper() for x in ['BUY','OUTPERFORM','OVERWEIGHT']) \
+                                  else (RED if any(x in to_g.upper() for x in ['SELL','UNDERPERFORM']) else YELLOW)
+                            arrow = "↑" if clr == GREEN else ("↓" if clr == RED else "→")
+                            st.markdown(
+                                f"<span style='color:{clr}'>{arrow}</span> **{firm}**：{from_g} → **{to_g}**",
+                                unsafe_allow_html=True)
+                    else:
+                        st.info("暫無評等異動資料")
+                except Exception:
+                    st.info("暫無評等異動資料")
+
+        progress.progress(100)
+        progress.empty()
+
+        st.markdown("---")
+        st.caption("⚠️ 以上為技術面快速概覽，僅供研究參考，不構成投資建議。")
+        st.caption("👈 點選左側「選擇功能」可進行財務健康、產業競爭、隱藏風險或內在價值的深度分析。")
+
+    except Exception as e:
+        progress.empty()
+        st.error(f"❌ 分析發生錯誤：{e}")
+        import traceback
+        st.code(traceback.format_exc())
+
+
+# ───────────────────────────────────────────────
 # 功能一：財務健康檢查
 # ───────────────────────────────────────────────
 def run_feature1(stock_input: str):
@@ -1895,7 +2215,7 @@ def build_sidebar() -> tuple[str, str]:
             help="台股輸入4碼數字，美股輸入英文代碼",
         )
 
-        run_btn = st.button("開始分析 →", type="primary", use_container_width=True)
+        run_btn = st.button("🔍 開始分析", type="primary", use_container_width=True)
         st.markdown("---")
 
         # ── 觀察清單 ──
@@ -1958,7 +2278,7 @@ def build_sidebar() -> tuple[str, str]:
         st.caption("📡 資料：Yahoo Finance · FinMind")
         st.caption("🔄 更新：每次查詢即時抓取")
 
-    return stock_input, "財務健康檢查" if run_btn else (selected_feature or "")
+    return stock_input, "概覽" if run_btn else (selected_feature or "")
 
 
 # ───────────────────────────────────────────────
@@ -1989,7 +2309,9 @@ def main():
         show_welcome()
         return
 
-    if action == "財務健康檢查":
+    if action == "概覽":
+        run_stock_overview(stock_input.strip())
+    elif action == "財務健康檢查":
         run_feature1(stock_input.strip())
     elif action == "技術面分析":
         run_feature2(stock_input.strip())
