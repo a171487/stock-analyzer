@@ -238,7 +238,7 @@ def plot_bollinger_chart(hist: pd.DataFrame, signal: Tuple) -> go.Figure:
     # Bollinger fill
     fig.add_trace(go.Scatter(
         x=list(dates) + list(dates[::-1]),
-        y=list(upper.fillna(method='ffill')) + list(lower.fillna(method='ffill')[::-1]),
+        y=list(upper.ffill()) + list(lower.ffill()[::-1]),
         fill='toself', fillcolor='rgba(74,158,255,0.07)',
         line=dict(color='rgba(0,0,0,0)'), showlegend=False, hoverinfo='skip',
     ))
