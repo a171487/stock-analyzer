@@ -1975,7 +1975,10 @@ def run_stock_overview(stock_input: str):
 
         st.markdown("---")
         st.caption("⚠️ 以上為技術面快速概覽，僅供研究參考，不構成投資建議。")
-        st.caption("👈 點選左側「選擇功能」可進行財務健康、產業競爭、隱藏風險或內在價值的深度分析。")
+        if _is_etf_ov:
+            st.caption("👈 ETF 專用：左側「📋 財務健康檢查」可查看 AUM/殖利率/績效；「📈 技術面分析」可查看完整技術指標。")
+        else:
+            st.caption("👈 點選左側「選擇功能」可進行財務健康、產業競爭、隱藏風險或內在價值的深度分析。")
 
     except Exception as e:
         progress.empty()
@@ -2050,12 +2053,31 @@ def _display_etf_dashboard(fetcher):
         er_str = f"{expense_ratio*100:.3f}%" if expense_ratio else "N/A"
         st.metric("管理費率", er_str)
     with c5:
-        r1_str = f"{ret_1y*100:.1f}%" if ret_1y else "N/A"
-        st.metric("近1年報酬", r1_str,
-                  delta_color="normal" if ret_1y is None else "normal")
-    with c6:
         r3_str = f"{ret_3y*100:.1f}%" if ret_3y else "N/A"
-        st.metric("3年年化報酬", r3_str)
+        r3_delta = f"{ret_3y*100:+.1f}% 年化" if ret_3y else None
+        st.metric("3年年化報酬", r3_str, delta=r3_delta,
+                  delta_color="normal" if ret_3y and ret_3y >= 0 else "inverse")
+    with c6:
+        r5_str = f"{ret_5y*100:.1f}%" if ret_5y else ("N/A" if not ret_1y else f"{ret_1y*100:.1f}%")
+        r5_lbl = "5年年化報酬" if ret_5y else "近1年報酬"
+        st.metric(r5_lbl, r5_str)
+
+    # ── 基金分類資訊 ──
+    _category   = info.get('category') or info.get('fundFamilyName') or ''
+    _inception  = info.get('fundInceptionDate')
+    _legal_type = info.get('legalType') or ''
+    _fund_info_parts = []
+    if _legal_type:  _fund_info_parts.append(f"類型：{_legal_type}")
+    if _category:    _fund_info_parts.append(f"分類：{_category}")
+    if _inception:
+        try:
+            from datetime import date as _date
+            _inc_str = str(_inception)[:10] if isinstance(_inception, str) else str(_inception)
+            _fund_info_parts.append(f"成立：{_inc_str}")
+        except Exception:
+            pass
+    if _fund_info_parts:
+        st.caption("  |  ".join(_fund_info_parts))
 
     # ── 52W 位置 + Beta ──
     w52h = info.get('fiftyTwoWeekHigh')
