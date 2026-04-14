@@ -1307,6 +1307,11 @@ def run_stock_overview(stock_input: str):
         ccy      = '' if is_tw else '$'
         info     = fetcher.info or {}
 
+        # ETF 偵測（用於概覽頁顯示調整）
+        from config.peer_stocks import TAIWAN_STOCK_INDUSTRY_MAP as _TIMAP2
+        _is_etf_ov = (_TIMAP2.get(fetcher.stock_id, '') == 'ETF' or
+                      'ETF' in (info.get('quoteType') or '').upper())
+
         bb_signal   = get_bb_signal(hist)
         ma_status   = get_ma_status(hist)
         macd_signal = get_macd_signal(hist)
@@ -1358,7 +1363,12 @@ def run_stock_overview(stock_input: str):
                 _sector_str = _tw_ind or _sector
             else:
                 _sector_str = ' · '.join(filter(None, [_sector, _industry])) if _sector != _industry else _sector
-            _sub = f"{fetcher.ticker_symbol} · 技術快速概覽" + (f" · {_sector_str}" if _sector_str else "")
+            _etf_badge = (" · <span style='background:#6c5ce722;color:#a29bfe;font-size:0.75rem;"
+                          "padding:2px 8px;border-radius:8px;font-weight:700'>ETF</span>"
+                          if _is_etf_ov else "")
+            _sub = (f"{fetcher.ticker_symbol} · 技術快速概覽"
+                    + (f" · {_sector_str}" if _sector_str else "")
+                    + _etf_badge)
             st.markdown(
                 f'<p class="main-subtitle">{_sub}</p>',
                 unsafe_allow_html=True)
@@ -1403,15 +1413,22 @@ def run_stock_overview(stock_input: str):
                 <div style='font-size:1.2rem;font-weight:700;color:#dfe6e9'>{vol_str}</div>
             </div>""", unsafe_allow_html=True)
         with col_h4:
-            mc = info.get('marketCap')
-            if mc:
-                mc_str = (f"{mc/1e12:.2f}兆" if mc >= 1e12 else f"{mc/1e8:.0f}億") if is_tw else f"${mc/1e9:.1f}B"
+            # ETF 顯示 AUM（totalAssets），一般股票顯示市值
+            if _is_etf_ov:
+                _aum = info.get('totalAssets')
+                if _aum:
+                    mc_str = (f"{_aum/1e8:.0f}億" if _aum >= 1e8 else f"{_aum/1e6:.0f}M") if is_tw else f"${_aum/1e9:.1f}B"
+                else:
+                    mc_str = "N/A"
+                _mc_label = "規模 (AUM)"
             else:
-                mc_str = "N/A"
+                mc = info.get('marketCap')
+                mc_str = (f"{mc/1e12:.2f}兆" if mc >= 1e12 else f"{mc/1e8:.0f}億") if (mc and is_tw) else (f"${mc/1e9:.1f}B" if mc else "N/A")
+                _mc_label = "市值"
             st.markdown(f"""
             <div style='background:#1a1f2e;border:1px solid #2d3436;
                         border-radius:10px;padding:12px;text-align:center'>
-                <div style='font-size:0.72rem;color:#aaa'>市值</div>
+                <div style='font-size:0.72rem;color:#aaa'>{_mc_label}</div>
                 <div style='font-size:1.2rem;font-weight:700;color:#dfe6e9'>{mc_str}</div>
             </div>""", unsafe_allow_html=True)
 
@@ -1947,6 +1964,162 @@ def run_stock_overview(stock_input: str):
 
 
 # ───────────────────────────────────────────────
+# ETF 專屬儀表板（Feature 1 替代頁面）
+# ───────────────────────────────────────────────
+def _display_etf_dashboard(fetcher):
+    """ETF 類型：顯示 AUM / 殖利率 / 績效 / 走勢圖，取代財務健康分析"""
+    import plotly.graph_objects as go
+
+    info   = fetcher.info or {}
+    name   = fetcher.get_company_name()
+    ticker = fetcher.ticker_symbol
+    is_tw  = fetcher.stock_type == 'TW'
+    ccy    = '' if is_tw else '$'
+
+    # ── 從 peer_stocks 取中文名 ──
+    from config.peer_stocks import TAIWAN_INDUSTRY_PEERS as _PEERS, TAIWAN_STOCK_INDUSTRY_MAP as _TIMAP
+    _tw_names = {}
+    for _d in _PEERS.values():
+        _tw_names.update(_d.get('names', {}))
+    cn = _tw_names.get(ticker, '')
+
+    # ── 頁頭 ──
+    if cn:
+        st.markdown(
+            f'<p style="font-size:1.4rem;font-weight:900;color:#dfe6e9;margin:0 0 2px 0">'
+            f'{cn}</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="main-title">📊 {name}</p>', unsafe_allow_html=True)
+    ind_lbl = _TIMAP.get(fetcher.stock_id, 'ETF')
+    st.markdown(
+        f'<p class="main-subtitle">{ticker} · ETF 基金概況</p>',
+        unsafe_allow_html=True)
+
+    st.info("📌 此為 ETF 基金，傳統財務健康指標（P/E、毛利率等）不適用，以下顯示 ETF 專屬指標。")
+    st.markdown("---")
+
+    # ── ETF 關鍵指標 ──
+    price_now = fetcher.get_current_price()
+    total_assets = info.get('totalAssets')
+    div_yield    = info.get('yield') or info.get('dividendYield')
+    expense_ratio = info.get('annualReportExpenseRatio') or info.get('expenseRatio')
+    ret_1y = info.get('oneYearReturn') or info.get('ytdReturn')
+    ret_3y = info.get('threeYearAverageReturn')
+    ret_5y = info.get('fiveYearAverageReturn')
+    beta   = info.get('beta3Year') or info.get('beta')
+
+    st.markdown('<p class="section-title">📊 ETF 關鍵指標</p>', unsafe_allow_html=True)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    with c1:
+        if total_assets:
+            if is_tw:
+                aum_str = f"{total_assets/1e8:.0f}億" if total_assets >= 1e8 else f"{total_assets/1e6:.0f}百萬"
+            else:
+                aum_str = f"${total_assets/1e9:.1f}B" if total_assets >= 1e9 else f"${total_assets/1e6:.0f}M"
+        else:
+            aum_str = "N/A"
+        st.metric("規模 (AUM)", aum_str)
+    with c2:
+        nav_str = f"{ccy}{price_now:,.2f}" if price_now else "N/A"
+        st.metric("淨值 (NAV)", nav_str)
+    with c3:
+        dy_str = f"{div_yield*100:.2f}%" if div_yield else "N/A"
+        st.metric("殖利率", dy_str)
+    with c4:
+        er_str = f"{expense_ratio*100:.3f}%" if expense_ratio else "N/A"
+        st.metric("管理費率", er_str)
+    with c5:
+        r1_str = f"{ret_1y*100:.1f}%" if ret_1y else "N/A"
+        st.metric("近1年報酬", r1_str,
+                  delta_color="normal" if ret_1y is None else "normal")
+    with c6:
+        r3_str = f"{ret_3y*100:.1f}%" if ret_3y else "N/A"
+        st.metric("3年年化報酬", r3_str)
+
+    # ── 52W 位置 + Beta ──
+    w52h = info.get('fiftyTwoWeekHigh')
+    w52l = info.get('fiftyTwoWeekLow')
+    if w52h and w52l and price_now and w52h != w52l:
+        pct52 = (price_now - w52l) / (w52h - w52l) * 100
+        c52   = GREEN if pct52 >= 60 else (RED if pct52 <= 30 else YELLOW)
+        st.markdown('<p class="section-title">📍 價位指標</p>', unsafe_allow_html=True)
+        _icols = st.columns(4)
+        def _ic(lbl, val, clr, sub=''):
+            _sh = f"<div style='font-size:0.62rem;color:#555;margin-top:1px'>{sub}</div>" if sub else ''
+            return (f"<div style='background:#1a1f2e;border:1px solid {clr}40;"
+                    f"border-radius:8px;padding:10px;text-align:center'>"
+                    f"<div style='font-size:0.68rem;color:#aaa'>{lbl}</div>"
+                    f"<div style='font-size:1rem;font-weight:700;color:{clr}'>{val}</div>"
+                    f"{_sh}</div>")
+        _h_str = f"{w52h:,.0f}" if is_tw else f"{ccy}{w52h:,.2f}"
+        _l_str = f"{w52l:,.0f}" if is_tw else f"{ccy}{w52l:,.2f}"
+        with _icols[0]:
+            st.markdown(_ic("52W位置", f"{pct52:.0f}%", c52,
+                            sub=f"↑{_h_str} ↓{_l_str}"), unsafe_allow_html=True)
+        with _icols[1]:
+            st.markdown(_ic("52W高點", _h_str, "#dfe6e9"), unsafe_allow_html=True)
+        with _icols[2]:
+            st.markdown(_ic("52W低點", _l_str, "#dfe6e9"), unsafe_allow_html=True)
+        with _icols[3]:
+            beta_str = f"{beta:.2f}" if beta else "N/A"
+            st.markdown(_ic("Beta (3Y)", beta_str, "#a29bfe"), unsafe_allow_html=True)
+        st.markdown("")
+
+    # ── 近一年價格走勢 ──
+    hist = fetcher.get_historical_prices('1y')
+    if hist is not None and not hist.empty:
+        st.markdown('<p class="section-title">📈 近一年走勢</p>', unsafe_allow_html=True)
+        first_p = float(hist['Close'].iloc[0])
+        last_p  = float(hist['Close'].iloc[-1])
+        tot_pct = (last_p - first_p) / first_p * 100 if first_p else 0
+        line_color = "#00c896" if tot_pct >= 0 else "#ff4444"
+        fill_color = "rgba(0,200,150,0.08)" if tot_pct >= 0 else "rgba(255,68,68,0.08)"
+        fig = go.Figure(go.Scatter(
+            x=hist.index, y=hist['Close'],
+            mode='lines', line=dict(color=line_color, width=2),
+            fill='tozeroy', fillcolor=fill_color,
+            hovertemplate='%{x|%Y-%m-%d}<br>%{y:,.2f}<extra></extra>',
+        ))
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            margin=dict(t=10, b=10, l=0, r=0), height=260,
+            xaxis=dict(showgrid=False, color='#555', tickfont=dict(size=11)),
+            yaxis=dict(showgrid=True, gridcolor='#1e2430', color='#555',
+                       tickfont=dict(size=11)),
+            annotations=[dict(
+                x=0.01, y=0.95, xref='paper', yref='paper',
+                text=f"近1年漲跌：{tot_pct:+.1f}%",
+                font=dict(size=13, color=line_color), showarrow=False,
+            )],
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── 月分配／配息紀錄 ──
+    try:
+        divs = fetcher._yf_ticker.dividends
+        if divs is not None and len(divs) >= 2:
+            st.markdown('<p class="section-title">💰 近期配息紀錄</p>', unsafe_allow_html=True)
+            recent_divs = divs.tail(12).reset_index()
+            recent_divs.columns = ['除息日', '每單位配息']
+            recent_divs['除息日'] = recent_divs['除息日'].dt.strftime('%Y-%m-%d')
+            recent_divs['每單位配息'] = recent_divs['每單位配息'].apply(lambda x: f"{x:.4f}")
+            st.dataframe(recent_divs.sort_values('除息日', ascending=False).head(12),
+                         use_container_width=True, hide_index=True)
+    except Exception:
+        pass
+
+    # ── 持股說明 ──
+    lname = info.get('longName') or info.get('shortName') or ''
+    long_biz = info.get('longBusinessSummary') or ''
+    if long_biz:
+        with st.expander("📄 ETF 簡介"):
+            st.markdown(long_biz[:800] + ("..." if len(long_biz) > 800 else ""))
+
+    st.markdown("---")
+    st.caption("⚠️ ETF 資料來源：Yahoo Finance，僅供參考，不構成投資建議。")
+    st.caption("👈 點選左側「選擇功能」可使用技術面分析等功能。")
+
+
+# ───────────────────────────────────────────────
 # 功能一：財務健康檢查
 # ───────────────────────────────────────────────
 def run_feature1(stock_input: str):
@@ -1968,6 +2141,16 @@ def run_feature1(stock_input: str):
                 st.info("📌 台股請輸入代碼（如 2330、0050、00919）。部分冷門 ETF 或新上市商品 Yahoo Finance 可能尚未收錄。")
             else:
                 st.info("📌 美股請輸入英文代碼（如 AAPL、NVDA、TSLA）。")
+            return
+
+        # ETF 偵測：台股查 TAIWAN_STOCK_INDUSTRY_MAP；美股查 quoteType
+        from config.peer_stocks import TAIWAN_STOCK_INDUSTRY_MAP as _timap
+        _is_etf = (_timap.get(fetcher.stock_id, '') == 'ETF' or
+                   'ETF' in (fetcher.info.get('quoteType') or '').upper())
+        if _is_etf:
+            progress.progress(100, text="✅ 完成！")
+            progress.empty()
+            _display_etf_dashboard(fetcher)
             return
 
         progress.progress(40, text="✅ 驗證完成，正在擷取財務數據...")
@@ -2562,9 +2745,9 @@ def _display_feature5(fetcher, result: dict, charts, analyzer, ai_report: Option
 # ───────────────────────────────────────────────
 # 觀察清單（所有用戶共用同一份）
 # ───────────────────────────────────────────────
-import json as _json, os as _os
+import json as _json, os as _os, tempfile as _tempfile
 
-_WL_FILE = '/tmp/wl.json'
+_WL_FILE = _os.path.join(_tempfile.gettempdir(), 'streamlit_stock_wl.json')
 
 def _wl_load() -> list:
     try:
