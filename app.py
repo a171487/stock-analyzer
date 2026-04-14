@@ -187,9 +187,11 @@ def _fetch_market_snapshot():
         "NASDAQ":   "^IXIC",
         "台積電":   "2330.TW",
         "聯發科":   "2454.TW",
+        "鴻海":     "2317.TW",
         "NVIDIA":   "NVDA",
         "Apple":    "AAPL",
         "Tesla":    "TSLA",
+        "Amazon":   "AMZN",
     }
     result = {}
     for name, symbol in watch.items():
@@ -318,8 +320,8 @@ def show_welcome():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # 個股行情（可點擊快速查詢）
-    stock_names = ["台積電", "聯發科", "NVIDIA", "Apple", "Tesla"]
-    s_cols = st.columns(5)
+    stock_names = ["台積電", "聯發科", "鴻海", "NVIDIA", "Apple", "Amazon"]
+    s_cols = st.columns(6)
     for col, name in zip(s_cols, stock_names):
         d = snapshot.get(name)
         with col:
@@ -479,6 +481,15 @@ def run_feature4(stock_input: str):
         if not fetcher.is_valid():
             progress.empty()
             st.error(f"❌ 找不到股票「{stock_input}」")
+            return
+
+        # ETF 偵測
+        from config.peer_stocks import TAIWAN_STOCK_INDUSTRY_MAP as _timap4
+        if (_timap4.get(fetcher.stock_id, '') == 'ETF' or
+                'ETF' in (fetcher.info.get('quoteType') or '').upper()):
+            progress.empty()
+            st.info("📌 此為 ETF 基金，財報隱藏風險偵測（應收帳款/存貨/CFO品質等）不適用。\n\n"
+                    "建議使用左側「📋 財務健康檢查」查看 ETF 規模、殖利率與績效。")
             return
 
         progress.progress(25, text="✅ 正在分析應收帳款與存貨...")
@@ -1969,6 +1980,7 @@ def run_stock_overview(stock_input: str):
 def _display_etf_dashboard(fetcher):
     """ETF 類型：顯示 AUM / 殖利率 / 績效 / 走勢圖，取代財務健康分析"""
     import plotly.graph_objects as go
+    from modules.charts_overview import GREEN, RED, YELLOW
 
     info   = fetcher.info or {}
     name   = fetcher.get_company_name()
@@ -2333,6 +2345,16 @@ def run_feature5(stock_input: str):
         if not fetcher.is_valid():
             progress.empty()
             st.error(f"❌ 找不到股票「{stock_input}」")
+            return
+
+        # ETF 偵測
+        from config.peer_stocks import TAIWAN_STOCK_INDUSTRY_MAP as _timap5
+        if (_timap5.get(fetcher.stock_id, '') == 'ETF' or
+                'ETF' in (fetcher.info.get('quoteType') or '').upper()):
+            progress.empty()
+            st.info("📌 此為 ETF 基金，DCF/DDM 等內在價值模型不適用（ETF 無獨立現金流）。\n\n"
+                    "- ETF 的合理價值通常等於追蹤指數的淨值（NAV），可直接對照溢折價。\n"
+                    "- 建議使用左側「📋 財務健康檢查」查看 ETF 殖利率、AUM 與績效指標。")
             return
 
         progress.progress(25, text="✅ 正在計算 WACC 與 DCF 模型...")
