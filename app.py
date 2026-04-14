@@ -1695,14 +1695,16 @@ def run_stock_overview(stock_input: str):
                                                 if kw in f and (not excl or excl not in f):
                                                     return i
                                             return -1
-                                        _ci_foreign = _fi('外資及陸資', '自營')
-                                        _ci_trust   = _fi('投信')
-                                        _ci_dealer  = _fi('自營商買賣超') if _fi('自營商買賣超') >= 0 \
-                                                      else _fi('三大法人')
+                                        _ci_foreign  = _fi('外資及陸資', '自營')
+                                        _ci_trust    = _fi('投信')
+                                        _ci_dealer_d = _fi('自營商買賣超')
+                                        _ci_total    = _fi('三大法人')
+                                        _ci_dealer   = _ci_dealer_d if _ci_dealer_d >= 0 else _ci_total
+                                        _dealer_is_total = (_ci_dealer == _ci_total)
                                         # fallback indices if fields not detected
                                         if _ci_foreign < 0: _ci_foreign = 3
                                         if _ci_trust   < 0: _ci_trust   = 6
-                                        if _ci_dealer  < 0: _ci_dealer  = 13
+                                        if _ci_dealer  < 0: _ci_dealer  = 13; _dealer_is_total = True
 
                                         _recent5 = _rows43[-5:]
                                         _tot = {'外資': 0, '投信': 0, '自營商': 0}
@@ -1710,10 +1712,12 @@ def run_stock_overview(stock_input: str):
                                         for _rw in _recent5:
                                             _tot['外資']   += _pn(_rw[_ci_foreign])
                                             _tot['投信']   += _pn(_rw[_ci_trust])
-                                            _tot['自營商'] += _pn(_rw[_ci_dealer]) \
-                                                             - _pn(_rw[_ci_foreign]) \
-                                                             - _pn(_rw[_ci_trust]) \
-                                            if _ci_dealer == _fi('三大法人') else _pn(_rw[_ci_dealer])
+                                            if _dealer_is_total:
+                                                _tot['自營商'] += (_pn(_rw[_ci_dealer])
+                                                                 - _pn(_rw[_ci_foreign])
+                                                                 - _pn(_rw[_ci_trust]))
+                                            else:
+                                                _tot['自營商'] += _pn(_rw[_ci_dealer])
                                             _dts.append(str(_rw[0]))
                                         if any(v != 0 for v in _tot.values()):
                                             _inst_result = {k: v // 1000 for k, v in _tot.items()}
