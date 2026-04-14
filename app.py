@@ -2655,6 +2655,14 @@ def build_sidebar() -> tuple[str, str]:
 
         st.markdown("---")
 
+        # 最近查詢（session-based）
+        _recent = st.session_state.get('recent_searches', [])
+        if _recent:
+            st.markdown("**🕐 最近查詢**")
+            for _rc in _recent[:5]:
+                if st.button(_rc, use_container_width=True, key=f"rec_{_rc}"):
+                    _quick_code = _rc
+
         # 熱門快速選股
         st.markdown("**快速選股**")
         for label, code in list(POPULAR_STOCKS.items())[:4]:
@@ -2700,6 +2708,16 @@ def main():
     if not stock_input.strip() or not action:
         show_welcome()
         return
+
+    # 更新最近查詢記錄（session-based，最多5筆）
+    _code_up = stock_input.strip().upper()
+    _recent = st.session_state.get('recent_searches', [])
+    if _code_up and _code_up not in _recent:
+        _recent = [_code_up] + _recent
+        st.session_state['recent_searches'] = _recent[:5]
+    elif _code_up in _recent:
+        _recent = [_code_up] + [r for r in _recent if r != _code_up]
+        st.session_state['recent_searches'] = _recent[:5]
 
     if action == "概覽":
         run_stock_overview(stock_input.strip())
