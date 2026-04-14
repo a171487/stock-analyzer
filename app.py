@@ -1531,71 +1531,178 @@ def run_stock_overview(stock_input: str):
             elif not is_tw:
                 st.caption("暫無評等彙總資料")
 
-            # 台灣三大法人（台股限定）── 使用 TWSE 官方 API
+            # 台灣三大法人（台股限定）── TWSE TWT43U → TWSE T86 → FinMind 三層 fallback
             if is_tw:
                 st.markdown("**🇹🇼 台灣三大法人近5日買賣超**")
-                try:
-                    def _parse_num(s):
-                        try:
-                            return int(str(s).replace(',', '').replace(' ', '') or '0')
-                        except Exception:
-                            return 0
 
-                    _inst_totals = {'外資': 0, '投信': 0, '自營商': 0}
-                    _found_dates = []
-                    _today = datetime.today()
+                def _pn(s):
+                    try:
+                        return int(str(s).replace(',', '').replace(' ', '').replace('+', '') or '0')
+                    except Exception:
+                        return 0
 
-                    for _di in range(0, 20):   # 最多往回找 20 個自然日
-                        _d = _today - timedelta(days=_di)
-                        if _d.weekday() >= 5:  # 跳過週末
-                            continue
-                        _ds = _d.strftime('%Y%m%d')
-                        try:
-                            _tr = _req.get(
-                                "https://www.twse.com.tw/fund/T86",
-                                params={"response": "json", "date": _ds,
-                                        "selectType": "ALL"},
-                                timeout=10,
-                                headers={"User-Agent": "Mozilla/5.0"}
-                            )
-                            _tj = _tr.json()
-                            if _tj.get('stat') == 'OK' and _tj.get('data'):
-                                for _row in _tj['data']:
-                                    if str(_row[0]).strip() == fetcher.stock_id:
-                                        # row[4]=外資淨, row[10]=投信淨
-                                        # row[13]=自營(自行), row[16]=自營(避險)
-                                        _inst_totals['外資']   += _parse_num(_row[4])
-                                        _inst_totals['投信']   += _parse_num(_row[10])
-                                        _inst_totals['自營商'] += (_parse_num(_row[13])
-                                                                    + _parse_num(_row[16]))
-                                        _found_dates.append(_d.strftime('%Y-%m-%d'))
+                _inst_result = {}   # {'外資': lots, '投信': lots, '自營商': lots}
+                _inst_label  = ''   # 日期描述
+
+                # ── 方法 1：TWSE TWT43U（個股三大法人，最輕量）──
+                if not _inst_result:
+                    try:
+                        _today_dt = datetime.today()
+                        for _mo in range(0, 3):
+                            _mdate = (_today_dt.replace(day=1)
+                                      - timedelta(days=_mo * 28)).strftime('%Y%m01')
+                            for _t43_url in [
+                                "https://www.twse.com.tw/rwd/zh/fund/TWT43U",
+                                "https://www.twse.com.tw/fund/TWT43U",
+                            ]:
+                                try:
+                                    _r43 = _req.get(
+                                        _t43_url,
+                                        params={"response": "json",
+                                                "stockNo": fetcher.stock_id,
+                                                "date": _mdate},
+                                        timeout=12,
+                                        headers={"User-Agent": "Mozilla/5.0"})
+                                    if _r43.status_code != 200:
+                                        continue
+                                    _j43 = _r43.json()
+                                    if _j43.get('stat') == 'OK' and _j43.get('data'):
+                                        _rows43 = _j43['data']
+                                        _flds43 = [str(f) for f in _j43.get('fields', [])]
+                                        # 找欄位索引（用欄位名稱）
+                                        def _fi(kw, excl=''):
+                                            for i, f in enumerate(_flds43):
+                                                if kw in f and (not excl or excl not in f):
+                                                    return i
+                                            return -1
+                                        _ci_foreign = _fi('外資及陸資', '自營')
+                                        _ci_trust   = _fi('投信')
+                                        _ci_dealer  = _fi('自營商買賣超') if _fi('自營商買賣超') >= 0 \
+                                                      else _fi('三大法人')
+                                        # fallback indices if fields not detected
+                                        if _ci_foreign < 0: _ci_foreign = 3
+                                        if _ci_trust   < 0: _ci_trust   = 6
+                                        if _ci_dealer  < 0: _ci_dealer  = 13
+
+                                        _recent5 = _rows43[-5:]
+                                        _tot = {'外資': 0, '投信': 0, '自營商': 0}
+                                        _dts = []
+                                        for _rw in _recent5:
+                                            _tot['外資']   += _pn(_rw[_ci_foreign])
+                                            _tot['投信']   += _pn(_rw[_ci_trust])
+                                            _tot['自營商'] += _pn(_rw[_ci_dealer]) \
+                                                             - _pn(_rw[_ci_foreign]) \
+                                                             - _pn(_rw[_ci_trust]) \
+                                            if _ci_dealer == _fi('三大法人') else _pn(_rw[_ci_dealer])
+                                            _dts.append(str(_rw[0]))
+                                        if any(v != 0 for v in _tot.values()):
+                                            _inst_result = {k: v // 1000 for k, v in _tot.items()}
+                                            _inst_label  = f"截至 {_dts[-1]}（近 {len(_dts)} 日）"
+                                            break
+                                except Exception:
+                                    continue
+                            if _inst_result:
+                                break
+                    except Exception:
+                        pass
+
+                # ── 方法 2：TWSE T86（全市場，逐日查）──
+                if not _inst_result:
+                    try:
+                        _tot2 = {'外資': 0, '投信': 0, '自營商': 0}
+                        _fd2  = []
+                        _td2  = datetime.today()
+                        for _di in range(1, 22):
+                            _d2 = _td2 - timedelta(days=_di)
+                            if _d2.weekday() >= 5:
+                                continue
+                            _ds2 = _d2.strftime('%Y%m%d')
+                            for _t86_url, _sel in [
+                                ("https://www.twse.com.tw/rwd/zh/fund/T86", "ALLBUT0999"),
+                                ("https://www.twse.com.tw/fund/T86",        "ALL"),
+                            ]:
+                                try:
+                                    _r2 = _req.get(
+                                        _t86_url,
+                                        params={"response":"json","date":_ds2,"selectType":_sel},
+                                        timeout=12,
+                                        headers={"User-Agent":"Mozilla/5.0"})
+                                    if _r2.status_code != 200:
+                                        continue
+                                    _j2 = _r2.json()
+                                    if _j2.get('stat') == 'OK' and _j2.get('data'):
+                                        for _rw2 in _j2['data']:
+                                            if str(_rw2[0]).strip() == fetcher.stock_id:
+                                                _tot2['外資']   += _pn(_rw2[4])
+                                                _tot2['投信']   += _pn(_rw2[10])
+                                                _tot2['自營商'] += _pn(_rw2[13]) + _pn(_rw2[16])
+                                                _fd2.append(_d2.strftime('%Y-%m-%d'))
+                                                break
                                         break
-                        except Exception:
-                            pass
+                                except Exception:
+                                    continue
+                            if len(_fd2) >= 5:
+                                break
+                        if _fd2:
+                            _inst_result = {k: v // 1000 for k, v in _tot2.items()}
+                            _inst_label  = f"截至 {_fd2[0]}（近 {len(_fd2)} 日）"
+                    except Exception:
+                        pass
 
-                        if len(_found_dates) >= 5:
-                            break
+                # ── 方法 3：FinMind ──
+                if not _inst_result:
+                    try:
+                        _end_fm   = datetime.today().strftime('%Y-%m-%d')
+                        _start_fm = (datetime.today() - timedelta(days=40)).strftime('%Y-%m-%d')
+                        _resp_fm  = _req.get(
+                            "https://api.finmindtrade.com/api/v4/data",
+                            params={"dataset": "TaiwanStockInstitutionalInvestors",
+                                    "data_id": fetcher.stock_id,
+                                    "start_date": _start_fm,
+                                    "end_date": _end_fm},
+                            timeout=15)
+                        if _resp_fm.status_code == 200:
+                            _fdata = _resp_fm.json().get('data', [])
+                            if _fdata:
+                                _dfi = pd.DataFrame(_fdata)
+                                _rdates = sorted(_dfi['date'].unique())[-5:]
+                                _dfr = _dfi[_dfi['date'].isin(_rdates)]
+                                _fm = {}
+                                for _dn, _pat, _ex in [
+                                    ('外資','外資','自營商'),
+                                    ('投信','投信',None),
+                                    ('自營商','自營商','外資'),
+                                ]:
+                                    _mask = _dfr['name'].str.contains(_pat, na=False)
+                                    if _ex:
+                                        _mask = _mask & ~_dfr['name'].str.contains(_ex, na=False)
+                                    _rr = _dfr[_mask]
+                                    if not _rr.empty:
+                                        _bc = 'buy'  if 'buy'  in _rr.columns else _rr.columns[3]
+                                        _sc = 'sell' if 'sell' in _rr.columns else _rr.columns[4]
+                                        _fm[_dn] = int(_rr[_bc].sum() - _rr[_sc].sum())
+                                if _fm:
+                                    _inst_result = _fm
+                                    _inst_label  = f"截至 {_rdates[-1]}（FinMind）"
+                    except Exception:
+                        pass
 
-                    if _found_dates:
-                        # TWSE 單位是「股」，除以 1000 換算為「張」
-                        _lots = {k: v // 1000 for k, v in _inst_totals.items()}
-                        _date_range = f"{_found_dates[-1]} ～ {_found_dates[0]}"
-                        st.caption(f"截至 {_found_dates[0]}（近 {len(_found_dates)} 個交易日）")
-                        for _inv, _net in _lots.items():
-                            _clr2 = GREEN if _net > 0 else RED
-                            st.markdown(
-                                f"<div style='display:flex;justify-content:space-between;"
-                                f"align-items:center;background:{_clr2}10;"
-                                f"border:1px solid {_clr2}30;border-radius:7px;"
-                                f"padding:6px 12px;margin-bottom:5px'>"
-                                f"<span style='color:#aaa;font-size:0.82rem'>{_inv}</span>"
-                                f"<span style='color:{_clr2};font-weight:800'>"
-                                f"{_net:+,} 張</span></div>",
-                                unsafe_allow_html=True)
-                    else:
-                        st.caption("⚠️ 三大法人資料暫無（TWSE 查無資料或非交易日）")
-                except Exception:
-                    st.caption("⚠️ 三大法人資料取得失敗")
+                # ── 顯示結果 ──
+                if _inst_result:
+                    st.caption(_inst_label)
+                    for _inv, _net in _inst_result.items():
+                        _clr2 = GREEN if _net > 0 else RED
+                        st.markdown(
+                            f"<div style='display:flex;justify-content:space-between;"
+                            f"align-items:center;background:{_clr2}10;"
+                            f"border:1px solid {_clr2}30;border-radius:7px;"
+                            f"padding:6px 12px;margin-bottom:5px'>"
+                            f"<span style='color:#aaa;font-size:0.82rem'>{_inv}</span>"
+                            f"<span style='color:{_clr2};font-weight:800'>"
+                            f"{_net:+,} 張</span></div>",
+                            unsafe_allow_html=True)
+                else:
+                    st.caption("⚠️ 三大法人資料暫無（TWSE / FinMind 均查無資料）")
 
         st.markdown("---")
 
