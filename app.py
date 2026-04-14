@@ -211,26 +211,40 @@ def _fetch_market_snapshot():
     return result
 
 
-def _mini_sparkline(symbol: str) -> "go.Figure":
-    """小型走勢圖（1個月）"""
+@st.cache_data(ttl=3600)  # 快取1小時（走勢圖不需要頻繁更新）
+def _fetch_index_sparklines():
+    """大盤指數1個月走勢快取"""
     import yfinance as yf
+    indices = {"台灣加權": "^TWII", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
+    out = {}
+    for name, sym in indices.items():
+        try:
+            hist = yf.Ticker(sym).history(period='1mo')
+            if not hist.empty:
+                out[name] = hist['Close'].tolist()
+        except Exception:
+            pass
+    return out
+
+
+def _mini_sparkline(close_list: list, pct: float) -> "go.Figure":
+    """小型走勢圖（傳入 close 列表，避免重複 API 請求）"""
     import plotly.graph_objects as go
     try:
-        hist = yf.Ticker(symbol).history(period='1mo')
-        if hist.empty:
-            raise ValueError
-        close = hist['Close']
-        color = "#00c896" if float(close.iloc[-1]) >= float(close.iloc[0]) else "#ff4444"
+        if not close_list or len(close_list) < 2:
+            return None
+        color = "#00c896" if pct >= 0 else "#ff4444"
+        fill_color = "rgba(0,200,150,0.12)" if pct >= 0 else "rgba(255,68,68,0.12)"
         fig = go.Figure(go.Scatter(
-            x=list(range(len(close))), y=close.tolist(),
+            x=list(range(len(close_list))), y=close_list,
             mode='lines', line=dict(color=color, width=1.5),
-            fill='tozeroy', fillcolor=color.replace(')', ',0.1)').replace('rgb', 'rgba'),
+            fill='tozeroy', fillcolor=fill_color,
         ))
         fig.update_layout(
             margin=dict(t=0, b=0, l=0, r=0),
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            height=50, width=120,
+            height=45,
             xaxis=dict(visible=False),
             yaxis=dict(visible=False),
             showlegend=False,
@@ -267,9 +281,10 @@ def show_welcome():
     with st.spinner("載入行情中..."):
         snapshot = _fetch_market_snapshot()
 
-    # 大盤指數（前3個）
-    idx_names = ["台灣加權", "S&P 500", "NASDAQ"]
-    idx_cols  = st.columns(3)
+    # 大盤指數（前3個）＋走勢圖
+    idx_names  = ["台灣加權", "S&P 500", "NASDAQ"]
+    idx_cols   = st.columns(3)
+    sparklines = _fetch_index_sparklines()
     for col, name in zip(idx_cols, idx_names):
         d = snapshot.get(name)
         with col:
@@ -278,7 +293,7 @@ def show_welcome():
                 color  = "#00c896" if d['pct'] >= 0 else "#ff4444"
                 price_fmt = f"{d['price']:,.0f}" if d['price'] > 100 else f"{d['price']:,.2f}"
                 st.markdown(f"""
-                <div style='background:#1a1f2e;border-radius:12px;padding:16px 20px;
+                <div style='background:#1a1f2e;border-radius:12px;padding:12px 20px 4px 20px;
                             border:1px solid #2d3436;text-align:center'>
                     <div style='font-size:0.78rem;color:#a4b0be'>{name}</div>
                     <div style='font-size:1.6rem;font-weight:800;color:#dfe6e9'>{price_fmt}</div>
@@ -287,6 +302,12 @@ def show_welcome():
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                sp_data = sparklines.get(name)
+                if sp_data:
+                    sp_fig = _mini_sparkline(sp_data, d['pct'])
+                    if sp_fig:
+                        st.plotly_chart(sp_fig, use_container_width=True,
+                                        config={'displayModeBar': False})
             else:
                 st.markdown(f"""
                 <div style='background:#1a1f2e;border-radius:12px;padding:16px 20px;
