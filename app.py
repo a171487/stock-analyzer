@@ -389,6 +389,7 @@ def show_welcome():
         with cols[idx]:
             if st.button(label, use_container_width=True, key=f"quick_{code}"):
                 st.session_state.stock_input = code
+                st.session_state['stock_input_box'] = code
                 st.session_state.trigger_run = True
                 st.rerun()
 
@@ -2297,15 +2298,19 @@ def _watchlist_remove(code: str):
 # Sidebar
 # ───────────────────────────────────────────────
 def build_sidebar() -> tuple[str, str]:
+    # 記錄本次 render 是否有點選「觀察清單」或「快速選股」
+    _quick_code: str = ""
+
     with st.sidebar:
         st.markdown("### 📊 股票分析平台")
         st.markdown("---")
 
-        # 股票輸入
-        default_val = st.session_state.get('stock_input', '')
+        # 股票輸入（用 key 讓 session_state 可程式化更新）
+        if 'stock_input_box' not in st.session_state:
+            st.session_state['stock_input_box'] = st.session_state.get('stock_input', '')
         stock_input = st.text_input(
             "🔍 輸入股票代碼",
-            value=default_val,
+            key="stock_input_box",
             placeholder="台股:2330  美股:AAPL",
             help="台股輸入4碼數字，美股輸入英文代碼",
         )
@@ -2323,9 +2328,7 @@ def build_sidebar() -> tuple[str, str]:
                 with col_w1:
                     if st.button(item['label'], key=f"wl_{item['code']}",
                                  use_container_width=True):
-                        st.session_state.stock_input = item['code']
-                        st.session_state.trigger_run = True
-                        st.rerun()
+                        _quick_code = item['code']
                 with col_w2:
                     if st.button("✕", key=f"wl_del_{item['code']}",
                                  help="從清單移除"):
@@ -2365,13 +2368,17 @@ def build_sidebar() -> tuple[str, str]:
         st.markdown("**快速選股**")
         for label, code in list(POPULAR_STOCKS.items())[:4]:
             if st.button(label, use_container_width=True, key=f"sb_{code}"):
-                st.session_state.stock_input = code
-                st.session_state.trigger_run = True
-                st.rerun()
+                _quick_code = code
 
         st.markdown("---")
         st.caption("📡 資料：Yahoo Finance · FinMind")
         st.caption("🔄 更新：每次查詢即時抓取")
+
+    # 觀察清單 / 快速選股被點選 → 直接回傳代碼＋概覽，不需 rerun
+    if _quick_code:
+        st.session_state['stock_input_box'] = _quick_code
+        st.session_state['stock_input'] = _quick_code
+        return _quick_code, '概覽'
 
     return stock_input, "概覽" if run_btn else (selected_feature or "")
 
@@ -2382,10 +2389,13 @@ def build_sidebar() -> tuple[str, str]:
 def main():
     stock_input, action = build_sidebar()
 
-    # 快速按鈕（熱門股/觀察清單）觸發 → 預設顯示概覽
+    # 歡迎頁快速查詢 / API key 套用後重新分析 觸發
     if st.session_state.get('trigger_run'):
         st.session_state.trigger_run = False
-        stock_input = st.session_state.get('stock_input', stock_input)
+        _tr_code = st.session_state.get('stock_input', stock_input)
+        if _tr_code:
+            st.session_state['stock_input_box'] = _tr_code
+        stock_input = _tr_code or stock_input
         action = st.session_state.get('pending_feature', '概覽')
         st.session_state.pop('pending_feature', None)
 
