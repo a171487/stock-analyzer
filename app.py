@@ -1324,9 +1324,14 @@ def run_stock_overview(stock_input: str):
                 <div style='font-size:0.8rem;color:{chg_color}'>{chg_pts:+.2f} ({chg_pct:+.1f}%)</div>
             </div>""", unsafe_allow_html=True)
         with col_h3:
-            vol = info.get('volume') or info.get('regularMarketVolume') or info.get('_volume')
-            if vol:
-                vol_str = f"{int(vol)//1000}千張" if is_tw else f"{int(vol)/1e6:.1f}M"
+            vol = (info.get('volume') or info.get('regularMarketVolume') or
+                   info.get('_volume') or
+                   (int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns and len(hist) > 0 else None))
+            if vol and int(vol) > 0:
+                if is_tw:
+                    vol_str = f"{int(vol)//1000:,}張" if int(vol) >= 1000 else f"{int(vol)}股"
+                else:
+                    vol_str = f"{int(vol)/1e6:.1f}M" if int(vol) >= 1e6 else f"{int(vol)/1e3:.0f}K"
             else:
                 vol_str = "N/A"
             st.markdown(f"""
@@ -1349,6 +1354,44 @@ def run_stock_overview(stock_input: str):
             </div>""", unsafe_allow_html=True)
 
         st.markdown("")
+
+        # ── 第二列資訊卡片（PE / 52W高低 / 殖利率 / 成交量均比）──
+        _pe  = info.get('trailingPE') or info.get('forwardPE')
+        _w52h = info.get('fiftyTwoWeekHigh')
+        _w52l = info.get('fiftyTwoWeekLow')
+        _dy  = info.get('dividendYield')
+        _avg_vol = info.get('averageVolume') or info.get('averageDailyVolume10Day')
+        _vol_now = info.get('volume') or info.get('regularMarketVolume')
+
+        _info_cards = []
+        if _pe:
+            _info_cards.append(("本益比(P/E)", f"{_pe:.1f}x", "#a29bfe"))
+        if _w52h and _w52l:
+            _pct52 = (price_now - _w52l) / (_w52h - _w52l) * 100 if _w52h != _w52l else 50
+            _c52   = GREEN if _pct52 >= 60 else (RED if _pct52 <= 30 else YELLOW)
+            _info_cards.append(("52W區間", f"{_pct52:.0f}%", _c52))
+        if _w52h:
+            _info_cards.append(("52W最高", f"{ccy}{_w52h:,.2f}" if not is_tw else f"{_w52h:,.0f}", "#636e72"))
+        if _w52l:
+            _info_cards.append(("52W最低", f"{ccy}{_w52l:,.2f}" if not is_tw else f"{_w52l:,.0f}", "#636e72"))
+        if _dy and _dy > 0:
+            _info_cards.append(("殖利率", f"{_dy*100:.2f}%", "#00cec9"))
+        if _avg_vol and _vol_now:
+            _vol_ratio = _vol_now / _avg_vol
+            _vc = GREEN if _vol_ratio >= 1.5 else (RED if _vol_ratio < 0.5 else YELLOW)
+            _info_cards.append(("量比(vs均)", f"{_vol_ratio:.1f}x", _vc))
+
+        if _info_cards:
+            _ic_cols = st.columns(len(_info_cards))
+            for _col, (_lbl, _val, _clr) in zip(_ic_cols, _info_cards):
+                with _col:
+                    st.markdown(f"""
+                    <div style='background:#1a1f2e;border:1px solid {_clr}40;
+                                border-radius:8px;padding:8px;text-align:center;margin-bottom:4px'>
+                        <div style='font-size:0.68rem;color:#aaa'>{_lbl}</div>
+                        <div style='font-size:0.9rem;font-weight:700;color:{_clr}'>{_val}</div>
+                    </div>""", unsafe_allow_html=True)
+            st.markdown("")
 
         # ── 四大訊號摘要卡片 ──
         sig_items = [
@@ -1769,6 +1812,46 @@ def run_stock_overview(stock_input: str):
 
         progress.progress(100)
         progress.empty()
+
+        # ── 最新消息 ──
+        st.markdown("---")
+        st.markdown('<p class="section-title">📰 最新消息</p>', unsafe_allow_html=True)
+        try:
+            _news = fetcher._yf_ticker.news or []
+            if _news:
+                _shown = 0
+                for _nw in _news[:8]:
+                    _title = _nw.get('title') or (_nw.get('content', {}) or {}).get('title', '')
+                    _url   = _nw.get('link') or (_nw.get('content', {}) or {}).get('canonicalUrl', {}).get('url', '') if isinstance(_nw.get('content'), dict) else ''
+                    _pub   = _nw.get('providerPublishTime') or _nw.get('pubDate', '')
+                    _src   = (_nw.get('publisher') or
+                              (_nw.get('content', {}) or {}).get('provider', {}).get('displayName', '') if isinstance(_nw.get('content'), dict) else '')
+                    if not _title:
+                        continue
+                    _pub_str = ''
+                    if _pub and isinstance(_pub, (int, float)):
+                        from datetime import timezone
+                        _pub_str = datetime.fromtimestamp(_pub, tz=timezone.utc).strftime('%Y-%m-%d')
+                    elif isinstance(_pub, str) and _pub:
+                        _pub_str = _pub[:10]
+                    _meta = ' · '.join(filter(None, [_src, _pub_str]))
+                    if _url:
+                        st.markdown(
+                            f"▸ [{_title}]({_url})"
+                            + (f"  \n<span style='font-size:0.72rem;color:#636e72'>{_meta}</span>" if _meta else ""),
+                            unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            f"▸ {_title}"
+                            + (f"  \n<span style='font-size:0.72rem;color:#636e72'>{_meta}</span>" if _meta else ""),
+                            unsafe_allow_html=True)
+                    _shown += 1
+                    if _shown >= 5:
+                        break
+            else:
+                st.caption("暫無最新消息")
+        except Exception:
+            st.caption("暫無最新消息")
 
         st.markdown("---")
         st.caption("⚠️ 以上為技術面快速概覽，僅供研究參考，不構成投資建議。")
