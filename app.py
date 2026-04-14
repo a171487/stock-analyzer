@@ -1363,7 +1363,8 @@ def run_stock_overview(stock_input: str):
         _w52l = info.get('fiftyTwoWeekLow')
         _dy  = info.get('dividendYield')
         _avg_vol = info.get('averageVolume') or info.get('averageDailyVolume10Day')
-        _vol_now = info.get('volume') or info.get('regularMarketVolume')
+        _vol_now = (info.get('volume') or info.get('regularMarketVolume') or
+                    (int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns and len(hist) > 0 else None))
 
         _info_cards = []
         if _pe:
