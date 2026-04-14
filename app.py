@@ -1370,6 +1370,195 @@ def run_stock_overview(stock_input: str):
 
         st.markdown("---")
 
+        # ════════════════════════════════════════════════════
+        # 機構評等 & 分析師目標價（位於技術圖上方）
+        # ════════════════════════════════════════════════════
+        st.markdown('<p class="section-title">🏛 機構評等 &amp; 分析師目標價</p>',
+                    unsafe_allow_html=True)
+
+        # 預先抓取資料
+        _mean_t = info.get('targetMeanPrice')
+        _low_t  = info.get('targetLowPrice')
+        _high_t = info.get('targetHighPrice')
+        _num_a  = info.get('numberOfAnalystOpinions') or info.get('numberOfAnalysts')
+
+        _ud_df = None
+        try:
+            _ud_df = fetcher._yf_ticker.upgrades_downgrades
+            if _ud_df is not None and hasattr(_ud_df, 'empty') and _ud_df.empty:
+                _ud_df = None
+        except Exception:
+            pass
+
+        _rec_buy = _rec_hold = _rec_sell = 0
+        try:
+            _rec_s = fetcher._yf_ticker.recommendations_summary
+            if _rec_s is not None and not _rec_s.empty:
+                _rr = _rec_s.iloc[0]
+                _rec_buy  = int((_rr.get('strongBuy', 0) or 0) + (_rr.get('buy', 0) or 0))
+                _rec_hold = int(_rr.get('hold', 0) or 0)
+                _rec_sell = int((_rr.get('sell', 0) or 0) + (_rr.get('strongSell', 0) or 0))
+        except Exception:
+            pass
+        _rec_total = _rec_buy + _rec_hold + _rec_sell
+
+        # ① 共識目標價橫幅
+        if _mean_t and price_now:
+            _upside = (_mean_t - price_now) / price_now * 100
+            _up_clr = GREEN if _upside > 0 else RED
+            _num_str = f"（{int(_num_a)} 位分析師）" if _num_a else ""
+            st.markdown(
+                f"<div style='background:#1a1f2e;border:1px solid #2d3436;border-radius:10px;"
+                f"padding:12px 20px;margin-bottom:14px;display:flex;gap:28px;"
+                f"flex-wrap:wrap;align-items:center'>"
+                f"<div style='font-size:0.72rem;color:#aaa;white-space:nowrap'>"
+                f"📌 分析師共識目標價{_num_str}</div>"
+                f"<div><span style='font-size:0.7rem;color:#aaa'>目標均價&nbsp;</span>"
+                f"<span style='font-size:1.35rem;font-weight:900;color:{_up_clr}'>"
+                f"{ccy}{_mean_t:,.2f}</span>"
+                f"<span style='font-size:0.88rem;color:{_up_clr};font-weight:700;"
+                f"margin-left:8px'>{_upside:+.1f}% 空間</span></div>"
+                f"<div><span style='font-size:0.7rem;color:#aaa'>目標低價&nbsp;</span>"
+                f"<span style='color:#888;font-weight:600'>{ccy}{_low_t:,.2f}</span></div>"
+                f"<div><span style='font-size:0.7rem;color:#aaa'>目標高價&nbsp;</span>"
+                f"<span style='color:#888;font-weight:600'>{ccy}{_high_t:,.2f}</span></div>"
+                f"<div><span style='font-size:0.7rem;color:#aaa'>現價&nbsp;</span>"
+                f"<span style='color:#dfe6e9;font-weight:600'>{ccy}{price_now:,.2f}</span></div>"
+                f"</div>",
+                unsafe_allow_html=True)
+
+        # ② 左欄：機構評等公告明細 ／ 右欄：彙總 + 三大法人
+        _col_ud, _col_sum = st.columns([3, 2])
+
+        with _col_ud:
+            st.markdown("**📋 近期機構評等公告**")
+            _ud_rows = 0
+            if _ud_df is not None:
+                _udc = {c.lower(): c for c in _ud_df.columns}
+                _fc  = _udc.get('firm',      _ud_df.columns[0] if len(_ud_df.columns) > 0 else None)
+                _tc  = _udc.get('tograde',   _udc.get('to grade',   None))
+                _frc = _udc.get('fromgrade', _udc.get('from grade', None))
+
+                for _idx, _r in _ud_df.head(15).iterrows():
+                    _firm  = str(_r[_fc]).strip()  if _fc  else '–'
+                    _to_g  = str(_r[_tc]).strip()  if _tc  else ''
+                    _fr_g  = str(_r[_frc]).strip() if _frc else ''
+                    if not _firm or _firm in ('nan', '–', '') or not _to_g or _to_g == 'nan':
+                        continue
+
+                    _tup = _to_g.upper()
+                    if any(x in _tup for x in ['BUY','OUTPERFORM','OVERWEIGHT','STRONG BUY',
+                                                'POSITIVE','ACCUMULATE']):
+                        _gc, _ar, _cn = GREEN,  '↑', '看好'
+                    elif any(x in _tup for x in ['SELL','UNDERPERFORM','UNDERWEIGHT',
+                                                  'NEGATIVE','REDUCE']):
+                        _gc, _ar, _cn = RED,    '↓', '看壞'
+                    else:
+                        _gc, _ar, _cn = YELLOW, '→', '持平'
+
+                    _ds = _idx.strftime('%Y-%m-%d') if hasattr(_idx, 'strftime') else str(_idx)[:10]
+                    _fp = (f"<span style='color:#555;font-size:0.68rem'>&nbsp;←&nbsp;{_fr_g}</span>"
+                           if _fr_g and _fr_g not in ('nan', '') else '')
+                    st.markdown(
+                        f"<div style='display:grid;grid-template-columns:1fr auto;"
+                        f"align-items:center;padding:5px 4px;border-bottom:1px solid #1e2430'>"
+                        f"<div>"
+                        f"<span style='color:{_gc};font-weight:700;font-size:0.95rem'>{_ar}</span>"
+                        f"&nbsp;<b style='color:#dfe6e9'>{_firm}</b>"
+                        f"&nbsp;<span style='background:{_gc}22;color:{_gc};font-size:0.72rem;"
+                        f"padding:2px 8px;border-radius:8px;font-weight:700'>{_to_g}</span>"
+                        f"{_fp}</div>"
+                        f"<span style='color:#555;font-size:0.7rem;white-space:nowrap'>{_ds}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True)
+                    _ud_rows += 1
+                    if _ud_rows >= 10:
+                        break
+
+            if _ud_rows == 0:
+                st.caption("暫無機構評等異動資料（此股票 Yahoo Finance 未收錄海外分析師評等）")
+            else:
+                st.caption("※ yfinance 免費資料提供評等方向；個別機構目標價需 Bloomberg/FactSet")
+
+        with _col_sum:
+            # 分析師看法彙總（看好/持平/看壞）
+            if _rec_total > 0:
+                st.markdown("**📊 分析師看法彙總**")
+                for _lbl, _cnt, _clr in [
+                    ('看好', _rec_buy,  GREEN),
+                    ('持平', _rec_hold, YELLOW),
+                    ('看壞', _rec_sell, RED),
+                ]:
+                    _pct = _cnt / _rec_total * 100
+                    st.markdown(
+                        f"<div style='display:flex;justify-content:space-between;"
+                        f"align-items:center;background:{_clr}10;border:1px solid {_clr}30;"
+                        f"border-radius:8px;padding:8px 14px;margin-bottom:6px'>"
+                        f"<div><span style='font-size:1.55rem;font-weight:900;color:{_clr}'>"
+                        f"{_cnt}</span>"
+                        f"<span style='font-size:0.8rem;color:{_clr};margin-left:6px'>"
+                        f"家{_lbl}</span></div>"
+                        f"<span style='font-size:0.82rem;color:#888'>{_pct:.0f}%</span>"
+                        f"</div>",
+                        unsafe_allow_html=True)
+            elif not is_tw:
+                st.caption("暫無評等彙總資料")
+
+            # 台灣三大法人（台股限定）
+            if is_tw:
+                st.markdown("**🇹🇼 台灣三大法人近5日買賣超**")
+                try:
+                    _end_d   = datetime.today().strftime('%Y-%m-%d')
+                    _start_d = (datetime.today() - timedelta(days=20)).strftime('%Y-%m-%d')
+                    _resp = _req.get(
+                        "https://api.finmindtrade.com/api/v4/data",
+                        params={"dataset": "TaiwanStockInstitutionalInvestors",
+                                "data_id": fetcher.stock_id,
+                                "start_date": _start_d, "end_date": _end_d},
+                        timeout=8,
+                    )
+                    _fdata = _resp.json().get('data', [])
+                    if _fdata:
+                        _dfi = pd.DataFrame(_fdata)
+                        _rdates = sorted(_dfi['date'].unique())[-5:]
+                        _dfr = _dfi[_dfi['date'].isin(_rdates)]
+                        _inst_r = {}
+                        for _dn, _pat, _excl in [
+                            ('外資', '外資', '自營商'),
+                            ('投信', '投信', None),
+                            ('自營商', '自營商', '外資'),
+                        ]:
+                            _mask = _dfr['name'].str.contains(_pat, na=False)
+                            if _excl:
+                                _mask = _mask & ~_dfr['name'].str.contains(_excl, na=False)
+                            _rr = _dfr[_mask]
+                            if not _rr.empty:
+                                _bc = 'buy'  if 'buy'  in _rr.columns else _rr.columns[3]
+                                _sc = 'sell' if 'sell' in _rr.columns else _rr.columns[4]
+                                _inst_r[_dn] = int(_rr[_bc].sum() - _rr[_sc].sum())
+                        if _inst_r:
+                            _ld = _rdates[-1]
+                            st.caption(f"截至 {_ld}")
+                            for _inv, _net in _inst_r.items():
+                                _clr2 = GREEN if _net > 0 else RED
+                                st.markdown(
+                                    f"<div style='display:flex;justify-content:space-between;"
+                                    f"align-items:center;background:{_clr2}10;"
+                                    f"border:1px solid {_clr2}30;border-radius:7px;"
+                                    f"padding:6px 12px;margin-bottom:5px'>"
+                                    f"<span style='color:#aaa;font-size:0.82rem'>{_inv}</span>"
+                                    f"<span style='color:{_clr2};font-weight:800'>"
+                                    f"{_net:+,} 張</span></div>",
+                                    unsafe_allow_html=True)
+                        else:
+                            st.caption("三大法人資料暫無")
+                    else:
+                        st.caption("三大法人資料暫無（FinMind）")
+                except Exception:
+                    st.caption("三大法人資料暫無")
+
+        st.markdown("---")
+
         # ── 布林通道 ──
         st.markdown('<p class="section-title">📊 布林通道 (Bollinger Bands)</p>',
                     unsafe_allow_html=True)
@@ -1426,215 +1615,12 @@ def run_stock_overview(stock_input: str):
                 border-radius:0 8px 8px 0;padding:8px 14px;margin-bottom:12px'>
                 <b style='color:{sc}'>【{sn}】</b> {sd}</div>""", unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.caption("⚠️ 以上為技術面快速概覽，僅供研究參考，不構成投資建議。")
-        st.caption("👈 點選左側「選擇功能」可進行財務健康、產業競爭、隱藏風險或內在價值的深度分析。")
-
-        # ════════════════════════════════════════════════════
-        # 機構評等（獨立區塊，位於技術快速概覽下方）
-        # ════════════════════════════════════════════════════
-        st.markdown("""
-        <div style='margin-top:32px;padding:18px 22px 4px 22px;
-                    background:#10141c;border-radius:14px;
-                    border:1px solid #2d3436'>
-        <p style='font-size:1.15rem;font-weight:700;color:#5352ed;
-                  border-left:4px solid #5352ed;padding-left:10px;margin:0 0 14px 0'>
-        🏛 機構評等 &amp; 分析師目標價</p>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('<p class="section-title" style="display:none">🏛 機構評等</p>',
-                    unsafe_allow_html=True)
-
-        # ── 第一排：分析師共識目標價 ──
-        _mean_t = info.get('targetMeanPrice')
-        _low_t  = info.get('targetLowPrice')
-        _high_t = info.get('targetHighPrice')
-        _num_a  = info.get('numberOfAnalystOpinions') or info.get('numberOfAnalysts')
-        if _mean_t and price_now:
-            _upside = (_mean_t - price_now) / price_now * 100
-            _up_clr = GREEN if _upside > 0 else RED
-            st.markdown(
-                f"<div style='background:#1a1f2e;border:1px solid #2d3436;border-radius:12px;"
-                f"padding:16px 20px;margin-bottom:14px'>"
-                f"<div style='font-size:0.78rem;color:#aaa;margin-bottom:8px'>📌 分析師共識目標價"
-                f"{'（' + str(int(_num_a)) + ' 位分析師）' if _num_a else ''}</div>"
-                f"<div style='display:flex;gap:32px;flex-wrap:wrap;align-items:center'>"
-                f"<div><div style='font-size:0.7rem;color:#aaa'>目標均價</div>"
-                f"<div style='font-size:1.7rem;font-weight:900;color:{_up_clr}'>{ccy}{_mean_t:,.2f}</div>"
-                f"<div style='font-size:0.85rem;color:{_up_clr};font-weight:700'>{_upside:+.1f}% 空間</div></div>"
-                f"<div style='color:#2d3436;font-size:1.4rem'>|</div>"
-                f"<div><div style='font-size:0.7rem;color:#aaa'>目標低價</div>"
-                f"<div style='font-size:1.1rem;font-weight:700;color:#aaa'>{ccy}{_low_t:,.2f}</div></div>"
-                f"<div><div style='font-size:0.7rem;color:#aaa'>目標高價</div>"
-                f"<div style='font-size:1.1rem;font-weight:700;color:#aaa'>{ccy}{_high_t:,.2f}</div></div>"
-                f"<div><div style='font-size:0.7rem;color:#aaa'>現價</div>"
-                f"<div style='font-size:1.1rem;font-weight:700;color:#dfe6e9'>{ccy}{price_now:,.2f}</div></div>"
-                f"</div></div>",
-                unsafe_allow_html=True)
-        else:
-            st.info("⚠️ 暫無分析師共識目標價資料（Yahoo Finance 未收錄此股票的分析師預測）")
-
-        # ── 第二排：左欄=機構評等明細，右欄=三大法人 or 買賣比例 ──
-        col_i1, col_i2 = st.columns([3, 2])
-
-        with col_i1:
-            st.markdown("**📋 近期機構評等異動**")
-            _ud_shown = False
-            try:
-                ud = fetcher._yf_ticker.upgrades_downgrades
-                if ud is not None and not ud.empty:
-                    # 取欄位名稱（可能大小寫不同）
-                    ud_cols = {c.lower(): c for c in ud.columns}
-                    firm_col  = ud_cols.get('firm',      ud.columns[0] if len(ud.columns) > 0 else None)
-                    to_col    = ud_cols.get('tograde',   ud_cols.get('to grade',   None))
-                    from_col  = ud_cols.get('fromgrade', ud_cols.get('from grade', None))
-
-                    rows_shown = 0
-                    for idx, row in ud.head(15).iterrows():
-                        firm   = str(row[firm_col]).strip()  if firm_col  else '–'
-                        to_g   = str(row[to_col]).strip()    if to_col    else ''
-                        from_g = str(row[from_col]).strip()  if from_col  else ''
-                        if not firm or firm in ('nan', '–', '') or not to_g or to_g == 'nan':
-                            continue
-
-                        to_up = to_g.upper()
-                        if any(x in to_up for x in ['BUY','OUTPERFORM','OVERWEIGHT','STRONG BUY','POSITIVE','ACCUMULATE']):
-                            g_clr, arrow = GREEN, '↑'
-                        elif any(x in to_up for x in ['SELL','UNDERPERFORM','UNDERWEIGHT','NEGATIVE','REDUCE']):
-                            g_clr, arrow = RED, '↓'
-                        else:
-                            g_clr, arrow = YELLOW, '→'
-
-                        date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)[:10]
-                        from_part = (f"<span style='color:#666;font-size:0.7rem'> ← {from_g}</span>"
-                                     if from_g and from_g not in ('nan', '') else '')
-
-                        st.markdown(
-                            f"<div style='display:flex;justify-content:space-between;align-items:center;"
-                            f"padding:6px 4px;border-bottom:1px solid #23272f'>"
-                            f"<div>"
-                            f"<span style='color:{g_clr};font-size:1rem;font-weight:700'>{arrow}</span>"
-                            f"&nbsp;<span style='color:#dfe6e9;font-weight:600'>{firm}</span>"
-                            f"&nbsp;&nbsp;<span style='background:{g_clr}22;color:{g_clr};font-size:0.75rem;"
-                            f"padding:2px 8px;border-radius:10px;font-weight:700'>{to_g}</span>"
-                            f"{from_part}</div>"
-                            f"<span style='color:#555;font-size:0.72rem'>{date_str}</span>"
-                            f"</div>",
-                            unsafe_allow_html=True)
-                        rows_shown += 1
-                        if rows_shown >= 10:
-                            break
-
-                    if rows_shown > 0:
-                        _ud_shown = True
-                        st.caption("※ 目前 yfinance 免費資料僅提供評等方向，個別機構目標價需付費資料源（Bloomberg / FactSet）")
-            except Exception:
-                pass
-
-            if not _ud_shown:
-                st.info("暫無機構評等異動資料（此股票 Yahoo Finance 未收錄海外分析師評等）")
-
-        with col_i2:
-            if is_tw:
-                # 台灣三大法人
-                try:
-                    end_d   = datetime.today().strftime('%Y-%m-%d')
-                    start_d = (datetime.today() - timedelta(days=20)).strftime('%Y-%m-%d')
-                    resp = _req.get(
-                        "https://api.finmindtrade.com/api/v4/data",
-                        params={"dataset": "TaiwanStockInstitutionalInvestors",
-                                "data_id": fetcher.stock_id,
-                                "start_date": start_d, "end_date": end_d},
-                        timeout=8,
-                    )
-                    data = resp.json().get('data', [])
-                    if data:
-                        df_i = pd.DataFrame(data)
-                        recent_dates = sorted(df_i['date'].unique())[-5:]
-                        df_r = df_i[df_i['date'].isin(recent_dates)]
-
-                        inst_result = {}
-                        for display_name, pattern, exclude in [
-                            ('外資', '外資', '自營商'),
-                            ('投信', '投信', None),
-                            ('自營商', '自營商', '外資'),
-                        ]:
-                            mask = df_r['name'].str.contains(pattern, na=False)
-                            if exclude:
-                                mask = mask & ~df_r['name'].str.contains(exclude, na=False)
-                            rows = df_r[mask]
-                            if not rows.empty:
-                                buy_col  = 'buy'  if 'buy'  in rows.columns else rows.columns[3]
-                                sell_col = 'sell' if 'sell' in rows.columns else rows.columns[4]
-                                net = int(rows[buy_col].sum() - rows[sell_col].sum())
-                                inst_result[display_name] = net
-
-                        if inst_result:
-                            latest_date = recent_dates[-1]
-                            st.markdown(
-                                f"**台灣三大法人近5日買賣超（張）**"
-                                f"<span style='font-size:0.72rem;color:#aaa'> 截至 {latest_date}</span>",
-                                unsafe_allow_html=True)
-                            for inv, net in inst_result.items():
-                                clr = GREEN if net > 0 else RED
-                                st.markdown(f"""
-                                <div style='display:flex;justify-content:space-between;align-items:center;
-                                            background:{clr}12;border:1px solid {clr}40;border-radius:8px;
-                                            padding:8px 14px;margin-bottom:6px'>
-                                    <span style='color:#aaa;font-size:0.82rem'>{inv}</span>
-                                    <span style='color:{clr};font-weight:800;font-size:1rem'>{net:+,} 張</span>
-                                </div>""", unsafe_allow_html=True)
-                        else:
-                            st.info("三大法人資料暫無")
-                    else:
-                        st.info("三大法人資料暫無（FinMind）")
-                except Exception:
-                    st.info("三大法人資料暫無")
-            else:
-                # 美股：買賣彙總
-                st.markdown("**📊 分析師評等彙總**")
-                _rs_shown = False
-                try:
-                    rec_sum = fetcher._yf_ticker.recommendations_summary
-                    if rec_sum is not None and not rec_sum.empty:
-                        _row = rec_sum.iloc[0]
-                        sb = int(_row.get('strongBuy',  0) or 0)
-                        b  = int(_row.get('buy',        0) or 0)
-                        h  = int(_row.get('hold',       0) or 0)
-                        s  = int(_row.get('sell',       0) or 0)
-                        ss = int(_row.get('strongSell', 0) or 0)
-                        total = sb + b + h + s + ss
-                        if total > 0:
-                            _rs_shown = True
-                            for lbl, cnt, clr in [
-                                ('強力買進', sb, GREEN), ('買入', b, GREEN),
-                                ('持有', h, YELLOW),
-                                ('賣出', s, RED),  ('強力賣出', ss, RED),
-                            ]:
-                                if cnt == 0:
-                                    continue
-                                pct = cnt / total * 100
-                                bar_w = int(pct)
-                                st.markdown(
-                                    f"<div style='margin-bottom:5px'>"
-                                    f"<div style='display:flex;justify-content:space-between;"
-                                    f"font-size:0.78rem'>"
-                                    f"<span style='color:{clr}'>{lbl}</span>"
-                                    f"<span style='color:#aaa'>{cnt} ({pct:.0f}%)</span></div>"
-                                    f"<div style='background:#23272f;border-radius:4px;height:6px'>"
-                                    f"<div style='width:{bar_w}%;background:{clr};height:6px;"
-                                    f"border-radius:4px'></div></div></div>",
-                                    unsafe_allow_html=True)
-                except Exception:
-                    pass
-                if not _rs_shown:
-                    st.info("暫無評等彙總資料")
-
         progress.progress(100)
         progress.empty()
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.caption("⚠️ 機構評等資料來源：Yahoo Finance。個別機構目標價需付費資料源（Bloomberg / FactSet），此處顯示分析師共識目標價。")
+        st.markdown("---")
+        st.caption("⚠️ 以上為技術面快速概覽，僅供研究參考，不構成投資建議。")
+        st.caption("👈 點選左側「選擇功能」可進行財務健康、產業競爭、隱藏風險或內在價值的深度分析。")
 
     except Exception as e:
         progress.empty()
