@@ -1239,6 +1239,8 @@ def run_stock_overview(stock_input: str):
         GREEN, RED, YELLOW, BLUE, ORANGE,
     )
     import requests as _req
+    import urllib3 as _urllib3
+    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
     from datetime import datetime, timedelta
 
     progress = st.progress(0, text="⏳ 正在取得資料...")
@@ -1611,7 +1613,8 @@ def run_stock_overview(stock_input: str):
                                                 "stockNo": fetcher.stock_id,
                                                 "date": _mdate},
                                         timeout=12,
-                                        headers={"User-Agent": "Mozilla/5.0"})
+                                        headers={"User-Agent": "Mozilla/5.0"},
+                                        verify=False)
                                     if _r43.status_code != 200:
                                         continue
                                     _j43 = _r43.json()
