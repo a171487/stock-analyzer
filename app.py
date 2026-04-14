@@ -1376,11 +1376,34 @@ def run_stock_overview(stock_input: str):
         st.markdown('<p class="section-title">🏛 機構評等 &amp; 分析師目標價</p>',
                     unsafe_allow_html=True)
 
-        # 預先抓取資料
+        # 預先抓取資料 ── 目標價（多重 fallback）
         _mean_t = info.get('targetMeanPrice')
         _low_t  = info.get('targetLowPrice')
         _high_t = info.get('targetHighPrice')
         _num_a  = info.get('numberOfAnalystOpinions') or info.get('numberOfAnalysts')
+
+        # Fallback: 直接試 yfinance analyst_price_targets 屬性
+        if not _mean_t:
+            try:
+                _apt = fetcher._yf_ticker.analyst_price_targets
+                if _apt and isinstance(_apt, dict):
+                    _mean_t = _apt.get('mean') or _apt.get('targetMeanPrice')
+                    _low_t  = _apt.get('low')  or _apt.get('targetLowPrice')
+                    _high_t = _apt.get('high') or _apt.get('targetHighPrice')
+                    _num_a  = _apt.get('numberOfAnalysts') or _num_a
+            except Exception:
+                pass
+
+        # Fallback: 直接讀 raw yfinance info（不透過自訂 property）
+        if not _mean_t:
+            try:
+                _raw_info = fetcher._yf_ticker.info or {}
+                _mean_t = _raw_info.get('targetMeanPrice')
+                _low_t  = _raw_info.get('targetLowPrice')
+                _high_t = _raw_info.get('targetHighPrice')
+                _num_a  = _raw_info.get('numberOfAnalystOpinions') or _num_a
+            except Exception:
+                pass
 
         _ud_df = None
         try:
@@ -1403,6 +1426,10 @@ def run_stock_overview(stock_input: str):
         _rec_total = _rec_buy + _rec_hold + _rec_sell
 
         # ① 共識目標價橫幅
+        if not _mean_t and is_tw:
+            st.caption(
+                "📌 台股分析師目標價：Yahoo Finance 對台股分析師覆蓋率較低，"
+                "建議參考券商研究報告或 Bloomberg 取得個別機構目標價。")
         if _mean_t and price_now:
             _upside = (_mean_t - price_now) / price_now * 100
             _up_clr = GREEN if _upside > 0 else RED
@@ -1504,58 +1531,71 @@ def run_stock_overview(stock_input: str):
             elif not is_tw:
                 st.caption("暫無評等彙總資料")
 
-            # 台灣三大法人（台股限定）
+            # 台灣三大法人（台股限定）── 使用 TWSE 官方 API
             if is_tw:
                 st.markdown("**🇹🇼 台灣三大法人近5日買賣超**")
                 try:
-                    _end_d   = datetime.today().strftime('%Y-%m-%d')
-                    _start_d = (datetime.today() - timedelta(days=20)).strftime('%Y-%m-%d')
-                    _resp = _req.get(
-                        "https://api.finmindtrade.com/api/v4/data",
-                        params={"dataset": "TaiwanStockInstitutionalInvestors",
-                                "data_id": fetcher.stock_id,
-                                "start_date": _start_d, "end_date": _end_d},
-                        timeout=8,
-                    )
-                    _fdata = _resp.json().get('data', [])
-                    if _fdata:
-                        _dfi = pd.DataFrame(_fdata)
-                        _rdates = sorted(_dfi['date'].unique())[-5:]
-                        _dfr = _dfi[_dfi['date'].isin(_rdates)]
-                        _inst_r = {}
-                        for _dn, _pat, _excl in [
-                            ('外資', '外資', '自營商'),
-                            ('投信', '投信', None),
-                            ('自營商', '自營商', '外資'),
-                        ]:
-                            _mask = _dfr['name'].str.contains(_pat, na=False)
-                            if _excl:
-                                _mask = _mask & ~_dfr['name'].str.contains(_excl, na=False)
-                            _rr = _dfr[_mask]
-                            if not _rr.empty:
-                                _bc = 'buy'  if 'buy'  in _rr.columns else _rr.columns[3]
-                                _sc = 'sell' if 'sell' in _rr.columns else _rr.columns[4]
-                                _inst_r[_dn] = int(_rr[_bc].sum() - _rr[_sc].sum())
-                        if _inst_r:
-                            _ld = _rdates[-1]
-                            st.caption(f"截至 {_ld}")
-                            for _inv, _net in _inst_r.items():
-                                _clr2 = GREEN if _net > 0 else RED
-                                st.markdown(
-                                    f"<div style='display:flex;justify-content:space-between;"
-                                    f"align-items:center;background:{_clr2}10;"
-                                    f"border:1px solid {_clr2}30;border-radius:7px;"
-                                    f"padding:6px 12px;margin-bottom:5px'>"
-                                    f"<span style='color:#aaa;font-size:0.82rem'>{_inv}</span>"
-                                    f"<span style='color:{_clr2};font-weight:800'>"
-                                    f"{_net:+,} 張</span></div>",
-                                    unsafe_allow_html=True)
-                        else:
-                            st.caption("三大法人資料暫無")
+                    def _parse_num(s):
+                        try:
+                            return int(str(s).replace(',', '').replace(' ', '') or '0')
+                        except Exception:
+                            return 0
+
+                    _inst_totals = {'外資': 0, '投信': 0, '自營商': 0}
+                    _found_dates = []
+                    _today = datetime.today()
+
+                    for _di in range(0, 20):   # 最多往回找 20 個自然日
+                        _d = _today - timedelta(days=_di)
+                        if _d.weekday() >= 5:  # 跳過週末
+                            continue
+                        _ds = _d.strftime('%Y%m%d')
+                        try:
+                            _tr = _req.get(
+                                "https://www.twse.com.tw/fund/T86",
+                                params={"response": "json", "date": _ds,
+                                        "selectType": "ALL"},
+                                timeout=10,
+                                headers={"User-Agent": "Mozilla/5.0"}
+                            )
+                            _tj = _tr.json()
+                            if _tj.get('stat') == 'OK' and _tj.get('data'):
+                                for _row in _tj['data']:
+                                    if str(_row[0]).strip() == fetcher.stock_id:
+                                        # row[4]=外資淨, row[10]=投信淨
+                                        # row[13]=自營(自行), row[16]=自營(避險)
+                                        _inst_totals['外資']   += _parse_num(_row[4])
+                                        _inst_totals['投信']   += _parse_num(_row[10])
+                                        _inst_totals['自營商'] += (_parse_num(_row[13])
+                                                                    + _parse_num(_row[16]))
+                                        _found_dates.append(_d.strftime('%Y-%m-%d'))
+                                        break
+                        except Exception:
+                            pass
+
+                        if len(_found_dates) >= 5:
+                            break
+
+                    if _found_dates:
+                        # TWSE 單位是「股」，除以 1000 換算為「張」
+                        _lots = {k: v // 1000 for k, v in _inst_totals.items()}
+                        _date_range = f"{_found_dates[-1]} ～ {_found_dates[0]}"
+                        st.caption(f"截至 {_found_dates[0]}（近 {len(_found_dates)} 個交易日）")
+                        for _inv, _net in _lots.items():
+                            _clr2 = GREEN if _net > 0 else RED
+                            st.markdown(
+                                f"<div style='display:flex;justify-content:space-between;"
+                                f"align-items:center;background:{_clr2}10;"
+                                f"border:1px solid {_clr2}30;border-radius:7px;"
+                                f"padding:6px 12px;margin-bottom:5px'>"
+                                f"<span style='color:#aaa;font-size:0.82rem'>{_inv}</span>"
+                                f"<span style='color:{_clr2};font-weight:800'>"
+                                f"{_net:+,} 張</span></div>",
+                                unsafe_allow_html=True)
                     else:
-                        st.caption("三大法人資料暫無（FinMind）")
+                        st.caption("⚠️ 三大法人資料暫無（TWSE 查無資料或非交易日）")
                 except Exception:
-                    st.caption("三大法人資料暫無")
+                    st.caption("⚠️ 三大法人資料取得失敗")
 
         st.markdown("---")
 
