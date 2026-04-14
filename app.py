@@ -1376,23 +1376,29 @@ def run_stock_overview(stock_input: str):
         st.markdown('<p class="section-title">🏛 機構評等 &amp; 分析師目標價</p>',
                     unsafe_allow_html=True)
 
-        # 預先抓取資料 ── 目標價（多重 fallback）
-        _mean_t = info.get('targetMeanPrice')
-        _low_t  = info.get('targetLowPrice')
-        _high_t = info.get('targetHighPrice')
-        _num_a  = info.get('numberOfAnalystOpinions') or info.get('numberOfAnalysts')
+        # 預先抓取資料 ── 目標價（優先 analyst_price_targets，再 fallback info）
+        _mean_t = None
+        _low_t  = None
+        _high_t = None
+        _num_a  = None
 
-        # Fallback: 直接試 yfinance analyst_price_targets 屬性
+        # 優先：直接試 yfinance analyst_price_targets 屬性（最可靠）
+        try:
+            _apt = fetcher._yf_ticker.analyst_price_targets
+            if _apt and isinstance(_apt, dict):
+                _mean_t = _apt.get('mean')
+                _low_t  = _apt.get('low')
+                _high_t = _apt.get('high')
+                _num_a  = _apt.get('numberOfAnalysts')
+        except Exception:
+            pass
+
+        # Fallback: info dict
         if not _mean_t:
-            try:
-                _apt = fetcher._yf_ticker.analyst_price_targets
-                if _apt and isinstance(_apt, dict):
-                    _mean_t = _apt.get('mean') or _apt.get('targetMeanPrice')
-                    _low_t  = _apt.get('low')  or _apt.get('targetLowPrice')
-                    _high_t = _apt.get('high') or _apt.get('targetHighPrice')
-                    _num_a  = _apt.get('numberOfAnalysts') or _num_a
-            except Exception:
-                pass
+            _mean_t = info.get('targetMeanPrice')
+            _low_t  = info.get('targetLowPrice')
+            _high_t = info.get('targetHighPrice')
+            _num_a  = info.get('numberOfAnalystOpinions') or info.get('numberOfAnalysts') or _num_a
 
         # Fallback: 直接讀 raw yfinance info（不透過自訂 property）
         if not _mean_t:
@@ -1626,7 +1632,8 @@ def run_stock_overview(stock_input: str):
                                         _t86_url,
                                         params={"response":"json","date":_ds2,"selectType":_sel},
                                         timeout=12,
-                                        headers={"User-Agent":"Mozilla/5.0"})
+                                        headers={"User-Agent":"Mozilla/5.0"},
+                                        verify=False)
                                     if _r2.status_code != 200:
                                         continue
                                     _j2 = _r2.json()
@@ -1635,7 +1642,7 @@ def run_stock_overview(stock_input: str):
                                             if str(_rw2[0]).strip() == fetcher.stock_id:
                                                 _tot2['外資']   += _pn(_rw2[4])
                                                 _tot2['投信']   += _pn(_rw2[10])
-                                                _tot2['自營商'] += _pn(_rw2[13]) + _pn(_rw2[16])
+                                                _tot2['自營商'] += _pn(_rw2[11])  # 自營商買賣超合計
                                                 _fd2.append(_d2.strftime('%Y-%m-%d'))
                                                 break
                                         break
@@ -1656,7 +1663,7 @@ def run_stock_overview(stock_input: str):
                         _start_fm = (datetime.today() - timedelta(days=40)).strftime('%Y-%m-%d')
                         _resp_fm  = _req.get(
                             "https://api.finmindtrade.com/api/v4/data",
-                            params={"dataset": "TaiwanStockInstitutionalInvestors",
+                            params={"dataset": "TaiwanStockInstitutionalInvestorsBuySell",
                                     "data_id": fetcher.stock_id,
                                     "start_date": _start_fm,
                                     "end_date": _end_fm},
@@ -1668,15 +1675,13 @@ def run_stock_overview(stock_input: str):
                                 _rdates = sorted(_dfi['date'].unique())[-5:]
                                 _dfr = _dfi[_dfi['date'].isin(_rdates)]
                                 _fm = {}
-                                for _dn, _pat, _ex in [
-                                    ('外資','外資','自營商'),
-                                    ('投信','投信',None),
-                                    ('自營商','自營商','外資'),
+                                # FinMind 回傳英文名稱：Foreign_Investor / Investment_Trust / Dealer_Self / Dealer_Hedging
+                                for _dn, _names in [
+                                    ('外資',  ['Foreign_Investor']),
+                                    ('投信',  ['Investment_Trust']),
+                                    ('自營商',['Dealer_Self', 'Dealer_Hedging']),
                                 ]:
-                                    _mask = _dfr['name'].str.contains(_pat, na=False)
-                                    if _ex:
-                                        _mask = _mask & ~_dfr['name'].str.contains(_ex, na=False)
-                                    _rr = _dfr[_mask]
+                                    _rr = _dfr[_dfr['name'].isin(_names)]
                                     if not _rr.empty:
                                         _bc = 'buy'  if 'buy'  in _rr.columns else _rr.columns[3]
                                         _sc = 'sell' if 'sell' in _rr.columns else _rr.columns[4]
