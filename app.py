@@ -1375,35 +1375,41 @@ def run_stock_overview(stock_input: str):
         _vol_now = (info.get('volume') or info.get('regularMarketVolume') or
                     (int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns and len(hist) > 0 else None))
 
-        _info_cards = []
+        # 第二列資訊卡片（最多4張：PE / 52W區間 / 殖利率 / 量比）
         _pe_label = "本益比 TTM" if info.get('trailingPE') else "本益比(預估)"
+        _has_52w  = _w52h and _w52l and _w52h != _w52l
+        _pct52 = (price_now - _w52l) / (_w52h - _w52l) * 100 if _has_52w else None
+        _c52   = GREEN if (_pct52 or 0) >= 60 else (RED if (_pct52 or 50) <= 30 else YELLOW)
+
+        def _ic_card(lbl, val, clr, sub=''):
+            _sub_html = f"<div style='font-size:0.62rem;color:#555;margin-top:1px'>{sub}</div>" if sub else ''
+            return (f"<div style='background:#1a1f2e;border:1px solid {clr}40;"
+                    f"border-radius:8px;padding:8px;text-align:center;margin-bottom:4px'>"
+                    f"<div style='font-size:0.68rem;color:#aaa'>{lbl}</div>"
+                    f"<div style='font-size:0.9rem;font-weight:700;color:{clr}'>{val}</div>"
+                    f"{_sub_html}</div>")
+
+        _ic_html_list = []
         if _pe:
-            _info_cards.append((_pe_label, f"{_pe:.1f}x", "#a29bfe"))
-        if _w52h and _w52l:
-            _pct52 = (price_now - _w52l) / (_w52h - _w52l) * 100 if _w52h != _w52l else 50
-            _c52   = GREEN if _pct52 >= 60 else (RED if _pct52 <= 30 else YELLOW)
-            _info_cards.append(("52W區間", f"{_pct52:.0f}%", _c52))
-        if _w52h:
-            _info_cards.append(("52W最高", f"{ccy}{_w52h:,.2f}" if not is_tw else f"{_w52h:,.0f}", "#636e72"))
-        if _w52l:
-            _info_cards.append(("52W最低", f"{ccy}{_w52l:,.2f}" if not is_tw else f"{_w52l:,.0f}", "#636e72"))
+            _ic_html_list.append(_ic_card(_pe_label, f"{_pe:.1f}x", "#a29bfe"))
+        if _has_52w:
+            _h_str = f"{_w52h:,.0f}" if is_tw else f"{ccy}{_w52h:,.2f}"
+            _l_str = f"{_w52l:,.0f}" if is_tw else f"{ccy}{_w52l:,.2f}"
+            _ic_html_list.append(_ic_card(
+                "52W位置", f"{_pct52:.0f}%", _c52,
+                sub=f"↑{_h_str} ↓{_l_str}"))
         if _dy and _dy > 0:
-            _info_cards.append(("殖利率", f"{_dy*100:.2f}%", "#00cec9"))
+            _ic_html_list.append(_ic_card("殖利率", f"{_dy*100:.2f}%", "#00cec9"))
         if _avg_vol and _vol_now:
             _vol_ratio = _vol_now / _avg_vol
             _vc = GREEN if _vol_ratio >= 1.5 else (RED if _vol_ratio < 0.5 else YELLOW)
-            _info_cards.append(("量比(vs均)", f"{_vol_ratio:.1f}x", _vc))
+            _ic_html_list.append(_ic_card("量比(vs均量)", f"{_vol_ratio:.1f}x", _vc))
 
-        if _info_cards:
-            _ic_cols = st.columns(len(_info_cards))
-            for _col, (_lbl, _val, _clr) in zip(_ic_cols, _info_cards):
+        if _ic_html_list:
+            _ic_cols = st.columns(len(_ic_html_list))
+            for _col, _html in zip(_ic_cols, _ic_html_list):
                 with _col:
-                    st.markdown(f"""
-                    <div style='background:#1a1f2e;border:1px solid {_clr}40;
-                                border-radius:8px;padding:8px;text-align:center;margin-bottom:4px'>
-                        <div style='font-size:0.68rem;color:#aaa'>{_lbl}</div>
-                        <div style='font-size:0.9rem;font-weight:700;color:{_clr}'>{_val}</div>
-                    </div>""", unsafe_allow_html=True)
+                    st.markdown(_html, unsafe_allow_html=True)
             st.markdown("")
 
         # ── 四大訊號摘要卡片 ──
