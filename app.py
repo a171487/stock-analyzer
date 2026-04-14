@@ -1314,8 +1314,17 @@ def run_stock_overview(stock_input: str):
                     f'{chinese_name}</p>',
                     unsafe_allow_html=True)
             st.markdown(f'<p class="main-title">📈 {name}</p>', unsafe_allow_html=True)
+            _sector = info.get('sector') or info.get('industry') or ''
+            _industry = info.get('industry') or ''
+            if is_tw:
+                from config.peer_stocks import TAIWAN_STOCK_INDUSTRY_MAP as _INDMAP
+                _tw_ind = _INDMAP.get(fetcher.stock_id, '')
+                _sector_str = _tw_ind or _sector
+            else:
+                _sector_str = ' · '.join(filter(None, [_sector, _industry])) if _sector != _industry else _sector
+            _sub = f"{fetcher.ticker_symbol} · 技術快速概覽" + (f" · {_sector_str}" if _sector_str else "")
             st.markdown(
-                f'<p class="main-subtitle">{fetcher.ticker_symbol} · 技術快速概覽</p>',
+                f'<p class="main-subtitle">{_sub}</p>',
                 unsafe_allow_html=True)
         with col_h2:
             st.markdown(f"""
@@ -1367,8 +1376,9 @@ def run_stock_overview(stock_input: str):
                     (int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns and len(hist) > 0 else None))
 
         _info_cards = []
+        _pe_label = "本益比 TTM" if info.get('trailingPE') else "本益比(預估)"
         if _pe:
-            _info_cards.append(("本益比(P/E)", f"{_pe:.1f}x", "#a29bfe"))
+            _info_cards.append((_pe_label, f"{_pe:.1f}x", "#a29bfe"))
         if _w52h and _w52l:
             _pct52 = (price_now - _w52l) / (_w52h - _w52l) * 100 if _w52h != _w52l else 50
             _c52   = GREEN if _pct52 >= 60 else (RED if _pct52 <= 30 else YELLOW)
