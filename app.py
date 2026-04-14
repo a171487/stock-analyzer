@@ -1843,20 +1843,25 @@ def run_stock_overview(stock_input: str):
             _news = fetcher._yf_ticker.news or []
             if _news:
                 _shown = 0
-                for _nw in _news[:8]:
-                    _title = _nw.get('title') or (_nw.get('content', {}) or {}).get('title', '')
-                    _url   = _nw.get('link') or (_nw.get('content', {}) or {}).get('canonicalUrl', {}).get('url', '') if isinstance(_nw.get('content'), dict) else ''
-                    _pub   = _nw.get('providerPublishTime') or _nw.get('pubDate', '')
-                    _src   = (_nw.get('publisher') or
-                              (_nw.get('content', {}) or {}).get('provider', {}).get('displayName', '') if isinstance(_nw.get('content'), dict) else '')
+                from datetime import timezone as _tz
+                for _nw in _news[:10]:
+                    # 新版 yfinance 格式：data nested under 'content' key
+                    _ct = _nw.get('content') or {}
+                    _title = (_ct.get('title') or _nw.get('title') or '').strip()
+                    # URL：新版在 canonicalUrl.url 或 clickThroughUrl.url
+                    _cu = _ct.get('canonicalUrl') or _ct.get('clickThroughUrl') or {}
+                    _url = (_cu.get('url') or _nw.get('link') or '').strip()
+                    # 發布時間：新版為 ISO string (2026-03-13T14:42:20Z)；舊版為 Unix int
+                    _pub_raw = _ct.get('pubDate') or _nw.get('providerPublishTime') or ''
+                    _src = ((_ct.get('provider') or {}).get('displayName') or
+                            _nw.get('publisher') or '').strip()
                     if not _title:
                         continue
                     _pub_str = ''
-                    if _pub and isinstance(_pub, (int, float)):
-                        from datetime import timezone
-                        _pub_str = datetime.fromtimestamp(_pub, tz=timezone.utc).strftime('%Y-%m-%d')
-                    elif isinstance(_pub, str) and _pub:
-                        _pub_str = _pub[:10]
+                    if isinstance(_pub_raw, (int, float)) and _pub_raw:
+                        _pub_str = datetime.fromtimestamp(_pub_raw, tz=_tz.utc).strftime('%Y-%m-%d')
+                    elif isinstance(_pub_raw, str) and _pub_raw:
+                        _pub_str = _pub_raw[:10]
                     _meta = ' · '.join(filter(None, [_src, _pub_str]))
                     if _url:
                         st.markdown(
