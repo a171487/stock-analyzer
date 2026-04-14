@@ -139,6 +139,22 @@ FEATURE_LIST = [
 # ───────────────────────────────────────────────
 # 工具函式
 # ───────────────────────────────────────────────
+
+def get_api_key() -> str:
+    """統一讀取 Claude API Key：session_state → st.secrets → os.environ"""
+    key = st.session_state.get('claude_api_key', '')
+    if key:
+        return key
+    try:
+        key = st.secrets.get('ANTHROPIC_API_KEY', '')
+        if key:
+            return key
+    except Exception:
+        pass
+    import os as _os
+    return _os.environ.get('ANTHROPIC_API_KEY', '')
+
+
 def fmt(v, suffix="", decimals=1, prefix=""):
     if v is None:
         return "N/A"
@@ -703,7 +719,6 @@ def run_feature3(stock_input: str):
     from modules.data_fetcher import StockDataFetcher
     from modules.feature3_industry import IndustryAnalyzer
     from modules.charts_industry import IndustryChartBuilder
-    import os
 
     progress = st.progress(0, text="⏳ 正在初始化產業分析...")
 
@@ -724,10 +739,7 @@ def run_feature3(stock_input: str):
         charts = IndustryChartBuilder()
 
         # 取得 Claude API Key
-        api_key = (
-            st.session_state.get('claude_api_key', '') or
-            os.environ.get('ANTHROPIC_API_KEY', '')
-        )
+        api_key = get_api_key()
 
         ai_report = None
         if api_key:
@@ -2086,7 +2098,6 @@ def run_feature5(stock_input: str):
     from modules.data_fetcher import StockDataFetcher
     from modules.feature5_valuation import ValuationAnalyzer
     from modules.charts_valuation import ValuationChartBuilder
-    import os
 
     progress = st.progress(0, text="⏳ 正在取得財務資料...")
 
@@ -2108,10 +2119,7 @@ def run_feature5(stock_input: str):
         progress.progress(75, text="✅ 分析完成，生成估值報告...")
         charts = ValuationChartBuilder()
 
-        api_key = (
-            st.session_state.get('claude_api_key', '') or
-            os.environ.get('ANTHROPIC_API_KEY', '')
-        )
+        api_key = get_api_key()
         ai_report = None
         if api_key:
             progress.progress(88, text="🤖 AI 分析師正在撰寫估值報告...")
