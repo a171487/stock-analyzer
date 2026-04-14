@@ -1890,7 +1890,9 @@ def run_stock_overview(stock_input: str):
 
         # ── 最新消息 ──
         st.markdown("---")
-        st.markdown('<p class="section-title">📰 最新消息</p>', unsafe_allow_html=True)
+        _news_src_note = "（資料來源：Yahoo Finance；台股新聞多為英文財經媒體報導）" if is_tw else "（Source: Yahoo Finance）"
+        st.markdown(f'<p class="section-title">📰 最新消息 <span style="font-size:0.72rem;color:#636e72;font-weight:400">{_news_src_note}</span></p>',
+                    unsafe_allow_html=True)
         try:
             _news = fetcher._yf_ticker.news or []
             if _news:
