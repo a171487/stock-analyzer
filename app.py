@@ -177,7 +177,7 @@ def color_val(v, good_above=None, bad_above=None, suffix="%", decimals=1):
 # ───────────────────────────────────────────────
 # Dashboard 工具函式
 # ───────────────────────────────────────────────
-@st.cache_data(ttl=300)   # 快取5分鐘
+@st.cache_data(ttl=120)   # 2 分鐘快取，減少 API 請求
 def _fetch_market_snapshot():
     """取得市場即時快照（大盤指數 + 熱門股）"""
     import yfinance as yf
