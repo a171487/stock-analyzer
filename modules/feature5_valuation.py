@@ -363,9 +363,9 @@ class ValuationAnalyzer:
         return result
 
     def _eps_history(self) -> List[Dict]:
-        """從 yfinance 取得近3年 EPS（含台股 NI/shares 備援）"""
+        """從 yfinance 取得近3年 EPS（含 FinMind 台股備援）"""
         try:
-            fin = self._ticker.financials
+            fin = self.fetcher.get_financials_3y()  # 含 FinMind fallback
             if fin is None or fin.empty:
                 return []
 
@@ -472,9 +472,13 @@ class ValuationAnalyzer:
 
         # 相對估值：用同業中位數 P/E 推算合理股價
         price = _sf(val.get('current_price'))
-        eps_ttm = self._latest_val(
-            self._ticker.financials,
-            ['Diluted EPS', 'Basic EPS']) if price else None
+        # 優先從 trailingEps/info 取 EPS（最快），再從財報（含 FinMind fallback）
+        eps_ttm = None
+        if price:
+            eps_ttm = _sf((self._ticker.info or {}).get('trailingEps'))
+            if not eps_ttm:
+                fin_df  = self.fetcher.get_financials_3y()
+                eps_ttm = self._latest_val(fin_df, ['Diluted EPS', 'Basic EPS', 'EPS'])
 
         peer_iv = None
         if medians['pe'] and eps_ttm and eps_ttm > 0:
