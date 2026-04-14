@@ -280,7 +280,7 @@ def show_welcome():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 個股行情
+    # 個股行情（可點擊快速查詢）
     stock_names = ["台積電", "聯發科", "NVIDIA", "Apple", "Tesla"]
     s_cols = st.columns(5)
     for col, name in zip(s_cols, stock_names):
@@ -291,11 +291,10 @@ def show_welcome():
                 color = "#00c896" if d['pct'] >= 0 else "#ff4444"
                 price_fmt = (f"{d['price']:,.1f}" if d['price'] > 100
                              else f"{d['price']:,.2f}")
-                # 點擊直接分析
                 code = d['symbol'].replace('.TW', '')
                 st.markdown(f"""
-                <div style='background:#141820;border-radius:10px;padding:12px;
-                            border:1px solid #2d3436;text-align:center;cursor:pointer'>
+                <div style='background:#141820;border-radius:10px;padding:10px 12px 4px 12px;
+                            border:1px solid #2d3436;text-align:center'>
                     <div style='font-size:0.72rem;color:#a4b0be'>{name}</div>
                     <div style='font-size:1.1rem;font-weight:700;color:#dfe6e9'>{price_fmt}</div>
                     <div style='font-size:0.85rem;font-weight:600;color:{color}'>
@@ -303,6 +302,10 @@ def show_welcome():
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                if st.button("📊 分析", key=f"snap_{code}", use_container_width=True):
+                    st.session_state.stock_input = code
+                    st.session_state.trigger_run = True
+                    st.rerun()
             else:
                 st.markdown(f"""
                 <div style='background:#141820;border-radius:10px;padding:12px;
