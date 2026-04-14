@@ -763,6 +763,16 @@ def run_feature3(stock_input: str):
             st.error(f"❌ 找不到股票「{stock_input}」")
             return
 
+        # ETF 偵測
+        from config.peer_stocks import TAIWAN_STOCK_INDUSTRY_MAP as _timap3
+        if (_timap3.get(fetcher.stock_id, '') == 'ETF' or
+                'ETF' in (fetcher.info.get('quoteType') or '').upper()):
+            progress.empty()
+            st.info("📌 此為 ETF 基金，產業競爭分析不適用（ETF 追蹤指數，無單一產業定位）。\n\n"
+                    "建議使用「📋 財務健康檢查」查看 ETF 規模與績效，"
+                    "或使用「📈 技術面分析」查看技術走勢。")
+            return
+
         progress.progress(30, text="✅ 正在取得同業比較數據...")
         analyzer = IndustryAnalyzer(fetcher)
         result   = analyzer.run_full_analysis()

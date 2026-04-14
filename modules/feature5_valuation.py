@@ -80,7 +80,7 @@ class ValuationAnalyzer:
             'peer_val':   peer_val,
             'sensitivity': sensitivity,
             'synthesis':  synthesis,
-            'current_price': _sf(val.get('price')),
+            'current_price': _sf(val.get('current_price')),
             'val_metrics': val,
         }
 
@@ -249,7 +249,7 @@ class ValuationAnalyzer:
         except Exception:
             info = {}
         div_y  = _sf(info.get('dividendYield'))
-        price  = _sf(val.get('price'))
+        price  = _sf(val.get('current_price'))
 
         if not div_y or not price or div_y < 0.001:
             return {'available': False, 'message': '公司目前不配息或股息殖利率過低，不適用 DDM'}
@@ -471,7 +471,7 @@ class ValuationAnalyzer:
         }
 
         # 相對估值：用同業中位數 P/E 推算合理股價
-        price = _sf(val.get('price'))
+        price = _sf(val.get('current_price'))
         eps_ttm = self._latest_val(
             self._ticker.financials,
             ['Diluted EPS', 'Basic EPS']) if price else None
@@ -538,7 +538,7 @@ class ValuationAnalyzer:
     # 綜合估值與安全邊際
     # ══════════════════════════════════════════
     def _synthesize(self, dcf, ddm, hist_val, peer_val, val, wacc_result) -> Dict:
-        price = _sf(val.get('price'))
+        price = _sf(val.get('current_price'))
         estimates = []
 
         # DCF 基本情境
