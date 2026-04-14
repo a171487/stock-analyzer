@@ -1341,6 +1341,21 @@ def run_stock_overview(stock_input: str):
             st.markdown(
                 f'<p class="main-subtitle">{_sub}</p>',
                 unsafe_allow_html=True)
+            # 加入觀察清單按鈕
+            _wl_now = _wl_load()
+            _wl_code = fetcher.stock_id if is_tw else fetcher.ticker_symbol
+            _wl_in_list = any(s['code'] == _wl_code for s in _wl_now)
+            if _wl_in_list:
+                if st.button("✓ 已在清單中", key="wl_remove_from_overview",
+                             help="點擊可從觀察清單移除"):
+                    _watchlist_remove(_wl_code)
+                    st.rerun()
+            else:
+                _wl_display = (chinese_name or name or _wl_code) + f" {_wl_code}"
+                if st.button("★ 加入觀察清單", key="wl_add_from_overview",
+                             help="加入至左側觀察清單"):
+                    _watchlist_add(_wl_code, _wl_display)
+                    st.rerun()
         with col_h2:
             st.markdown(f"""
             <div style='background:{chg_color}18;border:1.5px solid {chg_color};
