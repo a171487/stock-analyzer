@@ -2536,7 +2536,15 @@ def _display_feature5(fetcher, result: dict, charts, analyzer, ai_report: Option
         fc1, fc2, fc3 = st.columns(3)
         with fc1:
             fcf = dcf.get('fcf_latest', 0)
-            st.metric("最新年度 FCF", f"{ccy}{fcf/1e8:.1f}億" if fcf else "N/A")
+            if not fcf:
+                _fcf_disp = "N/A"
+            elif is_tw:
+                _fcf_disp = f"NT${fcf/1e8:.1f}億"
+            elif abs(fcf) >= 1e9:
+                _fcf_disp = f"${fcf/1e9:.2f}B"
+            else:
+                _fcf_disp = f"${fcf/1e6:.0f}M"
+            st.metric("最新年度 FCF", _fcf_disp)
         with fc2:
             hcagr = dcf.get('hist_cagr')
             st.metric("FCF 歷史 CAGR", f"{hcagr*100:.1f}%" if hcagr else "N/A")
@@ -2688,9 +2696,18 @@ def _display_feature5(fetcher, result: dict, charts, analyzer, ai_report: Option
                     iv_str = f"{iv_s:,.1f}" if iv_s and iv_s > 0 else 'N/A'
                     lines.append(f"| {lbl} | {s.get('g_proj','—')}% | {ccy}{iv_str} |")
                 fcf_v = dcf.get('fcf_latest', 0)
+                # 顯示單位：台股用「億台幣」，美股用「B / M USD」
+                if is_tw:
+                    _fcf_str = f"NT${fcf_v/1e8:.1f} 億"
+                elif abs(fcf_v) >= 1e9:
+                    _fcf_str = f"${fcf_v/1e9:.2f}B"
+                elif abs(fcf_v) >= 1e6:
+                    _fcf_str = f"${fcf_v/1e6:.0f}M"
+                else:
+                    _fcf_str = f"${fcf_v:,.0f}"
                 lines += [
                     "",
-                    f"**最新年度 FCF：** {ccy}{fcf_v/1e8:.1f} 億",
+                    f"**最新年度 FCF：** {_fcf_str}",
                     f"**FCF 歷史 CAGR：** {(dcf.get('hist_cagr') or 0)*100:.1f}%",
                     f"**營收 CAGR：** {(dcf.get('rev_cagr') or 0)*100:.1f}%",
                 ]

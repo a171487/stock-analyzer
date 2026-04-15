@@ -733,7 +733,7 @@ class ValuationAnalyzer:
 
             dcf_text += f"""
 
-**FCF 分析：** 最新年度自由現金流為 {dcf.get('fcf_latest', 0)/1e8:.1f} 億，
+**FCF 分析：** 最新年度自由現金流為 {(lambda v, tw: f"NT${v/1e8:.1f}億" if tw else (f"${v/1e9:.2f}B" if abs(v)>=1e9 else f"${v/1e6:.0f}M"))(dcf.get('fcf_latest',0), self.is_tw)}，
 歷史 CAGR 約 {(dcf.get('hist_cagr') or 0)*100:.1f}%，
 營收 CAGR 約 {(dcf.get('rev_cagr') or 0)*100:.1f}%。
 """
