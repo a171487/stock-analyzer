@@ -110,9 +110,8 @@ class IndustryChartBuilder:
         mid_x = np.median(valid_x) if valid_x else 10
         mid_y = np.median(valid_y) if valid_y else 30
 
-        for val, axis, label in [(mid_x, 'x', ''), (mid_y, 'y', '')]:
-            fig.add_vline(x=mid_x, line=dict(color='#444', width=1, dash='dot'))
-            fig.add_hline(y=mid_y, line=dict(color='#444', width=1, dash='dot'))
+        fig.add_vline(x=mid_x, line=dict(color='#444', width=1, dash='dot'))
+        fig.add_hline(y=mid_y, line=dict(color='#444', width=1, dash='dot'))
 
         # 象限標籤
         x_range = [min(valid_x)-5, max(valid_x)+5] if valid_x else [-10, 50]
@@ -169,7 +168,7 @@ class IndustryChartBuilder:
         for col_idx, (key, label, color) in enumerate(metrics, start=1):
             vals = [i.get(key) for i in all_items]
             bar_colors = [SELF_C if i['is_self'] else color for i in all_items]
-            text_vals  = [f"{v:.1f}%" if v else "N/A" for v in vals]
+            text_vals  = [f"{v:.1f}%" if v is not None else "N/A" for v in vals]
 
             fig.add_trace(go.Bar(
                 x=names, y=vals,
@@ -384,10 +383,31 @@ class IndustryChartBuilder:
             items.append({'name': p['name'][:12], 'cap': p.get('market_cap'), 'is_self': False})
         items = sorted([i for i in items if i.get('cap')], key=lambda x: x['cap'], reverse=True)
 
+        if not items:
+            return go.Figure()   # 所有同業無市值資料時回傳空圖
+
+        # 判斷是否為台股（市值為 TWD，單位: 億）
+        max_cap = max(i['cap'] for i in items)
+        is_tw_cap = max_cap > 1e10  # yfinance 台股 marketCap 以 TWD 報告，值通常 > 100億
+
+        if is_tw_cap:
+            caps  = [i['cap'] / 1e8 for i in items]  # TWD 億
+            unit_lbl = "億台幣"
+            fmt   = lambda c: f"{c:.0f}億"
+            hover = "%{y}: %{x:.0f}億<extra></extra>"
+            ax_title = "市值（億台幣）"
+            title_str = "同業市值比較（億台幣）"
+        else:
+            caps  = [i['cap'] / 1e9 for i in items]  # USD Billion
+            unit_lbl = "USD B"
+            fmt   = lambda c: f"${c:.1f}B"
+            hover = "%{y}: $%{x:.1f}B<extra></extra>"
+            ax_title = "市值（十億美元）"
+            title_str = "同業市值比較（USD Billion）"
+
         names  = [i['name'] for i in items]
-        caps   = [i['cap'] / 1e9 for i in items]   # 轉 Billion
         colors = [SELF_C if i['is_self'] else PEER_C for i in items]
-        texts  = [f"${c:.0f}B" for c in caps]
+        texts  = [fmt(c) for c in caps]
 
         fig = go.Figure(go.Bar(
             x=caps, y=names,
@@ -396,13 +416,13 @@ class IndustryChartBuilder:
             text=texts,
             textposition='outside',
             textfont=dict(size=10),
-            hovertemplate="%{y}: $%{x:.1f}B<extra></extra>",
+            hovertemplate=hover,
         ))
 
         layout = BASE.copy()
         layout.update(
-            title=dict(text="同業市值比較（USD Billion）", font=dict(size=13)),
-            xaxis=dict(title="市值（十億美元）", gridcolor=GRID),
+            title=dict(text=title_str, font=dict(size=13)),
+            xaxis=dict(title=ax_title, gridcolor=GRID),
             yaxis=dict(gridcolor=GRID),
             height=max(280, 55 * len(items)),
             showlegend=False,

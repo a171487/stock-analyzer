@@ -1140,11 +1140,14 @@ def _display_feature2(fetcher, result: dict, charts):
                     unsafe_allow_html=True)
     with col_h2:
         price_disp = f"{price:,.2f}"
-        chg_1d = float(hist['Close'].iloc[-1]) - float(hist['Close'].iloc[-2])
-        chg_pct = chg_1d / float(hist['Close'].iloc[-2]) * 100
-        st.metric("目前股價", f"{ccy}{price_disp}",
-                  delta=f"{chg_pct:+.2f}%",
-                  delta_color="normal")
+        if len(hist) >= 2:
+            _prev = float(hist['Close'].iloc[-2])
+            chg_1d = float(hist['Close'].iloc[-1]) - _prev
+            chg_pct = chg_1d / _prev * 100 if _prev else 0
+            st.metric("目前股價", f"{ccy}{price_disp}",
+                      delta=f"{chg_pct:+.2f}%", delta_color="normal")
+        else:
+            st.metric("目前股價", f"{ccy}{price_disp}")
     with col_h3:
         score = overall.get('score', 0)
         label = overall.get('label', '')
@@ -1253,13 +1256,13 @@ def _display_feature2(fetcher, result: dict, charts):
         sr_ = inst.get('short_ratio')
         sf = inst.get('short_pct_float')
         with ci1:
-            st.metric("機構持股%", f"{io*100:.1f}%" if io else "N/A")
+            st.metric("機構持股%", f"{io*100:.1f}%" if io is not None else "N/A")
         with ci2:
-            st.metric("內部人持股%", f"{ins_*100:.1f}%" if ins_ else "N/A")
+            st.metric("內部人持股%", f"{ins_*100:.1f}%" if ins_ is not None else "N/A")
         with ci3:
-            st.metric("空頭回補天數", f"{sr_:.1f}天" if sr_ else "N/A")
+            st.metric("空頭回補天數", f"{sr_:.1f}天" if sr_ is not None else "N/A")
         with ci4:
-            st.metric("空頭比率", f"{sf*100:.1f}%" if sf else "N/A")
+            st.metric("空頭比率", f"{sf*100:.1f}%" if sf is not None else "N/A")
 
     st.markdown("---")
 
