@@ -2050,14 +2050,14 @@ def _display_etf_dashboard(fetcher):
         nav_str = f"{ccy}{price_now:,.2f}" if price_now else "N/A"
         st.metric("淨值 (NAV)", nav_str)
     with c3:
-        dy_str = f"{div_yield*100:.2f}%" if div_yield else "N/A"
+        dy_str = f"{div_yield*100:.2f}%" if div_yield is not None else "N/A"
         st.metric("殖利率", dy_str)
     with c4:
-        er_str = f"{expense_ratio*100:.3f}%" if expense_ratio else "N/A"
+        er_str = f"{expense_ratio*100:.3f}%" if expense_ratio is not None else "N/A"
         st.metric("管理費率", er_str)
     with c5:
-        r3_str = f"{ret_3y*100:.1f}%" if ret_3y else "N/A"
-        r3_delta = f"{ret_3y*100:+.1f}% 年化" if ret_3y else None
+        r3_str = f"{ret_3y*100:.1f}%" if ret_3y is not None else "N/A"
+        r3_delta = f"{ret_3y*100:+.1f}% 年化" if ret_3y is not None else None
         st.metric("3年年化報酬", r3_str, delta=r3_delta,
                   delta_color="normal" if ret_3y and ret_3y >= 0 else "inverse")
     with c6:
@@ -2107,7 +2107,7 @@ def _display_etf_dashboard(fetcher):
         with _icols[2]:
             st.markdown(_ic("52W低點", _l_str, "#dfe6e9"), unsafe_allow_html=True)
         with _icols[3]:
-            beta_str = f"{beta:.2f}" if beta else "N/A"
+            beta_str = f"{beta:.2f}" if beta is not None else "N/A"
             st.markdown(_ic("Beta (3Y)", beta_str, "#a29bfe"), unsafe_allow_html=True)
         st.markdown("")
 
@@ -2547,10 +2547,10 @@ def _display_feature5(fetcher, result: dict, charts, analyzer, ai_report: Option
             st.metric("最新年度 FCF", _fcf_disp)
         with fc2:
             hcagr = dcf.get('hist_cagr')
-            st.metric("FCF 歷史 CAGR", f"{hcagr*100:.1f}%" if hcagr else "N/A")
+            st.metric("FCF 歷史 CAGR", f"{hcagr*100:.1f}%" if hcagr is not None else "N/A")
         with fc3:
             rcagr = dcf.get('rev_cagr')
-            st.metric("營收 CAGR", f"{rcagr*100:.1f}%" if rcagr else "N/A")
+            st.metric("營收 CAGR", f"{rcagr*100:.1f}%" if rcagr is not None else "N/A")
 
         col_d1, col_d2 = st.columns(2)
         with col_d1:
@@ -2648,7 +2648,7 @@ def _display_feature5(fetcher, result: dict, charts, analyzer, ai_report: Option
             mos_peer = (peer_iv - price) / peer_iv * 100 if peer_iv and price else None
             mos_color = bar_color if mos_peer is None else (
                 COLOR_GREEN if mos_peer >= 0 else COLOR_RED)
-            med_pe_str  = f"{med_pe:.1f}" if med_pe else "N/A"
+            med_pe_str  = f"{med_pe:.1f}" if med_pe is not None else "N/A"
             mos_peer_str = f"{mos_peer:+.1f}%" if mos_peer is not None else "N/A"
             st.markdown(f"""
             <div style='background:{mos_color}15;border:1px solid {mos_color};

@@ -388,7 +388,7 @@ class ValuationChartBuilder:
                 x=names, y=vals,
                 marker_color=colors,
                 marker_opacity=0.85,
-                text=[f"{v:.1f}x" if v else "N/A" for v in vals],
+                text=[f"{v:.1f}x" if v is not None else "N/A" for v in vals],
                 textposition='outside',
                 textfont=dict(size=10, color=TEXT),
                 showlegend=False,
