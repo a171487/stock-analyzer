@@ -11,13 +11,220 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 名稱查表（頂層 import，確保 hot-reload 時不失效）
+# ───────────────────────────────────────────────────────────
+# 股票名稱查表（直接內嵌於 app.py，確保任何環境都能正確載入）
+# ───────────────────────────────────────────────────────────
+TW_NAME_TO_CODE: dict = {
+    # 晶圓代工
+    "台積電": "2330", "台灣積體電路": "2330", "TSMC": "2330",
+    "聯電": "2303", "聯合電子": "2303",
+    "日月光": "3711", "日月光投控": "3711",
+    "力積電": "6770",
+    # IC 設計
+    "聯發科": "2454", "聯發": "2454",
+    "聯詠": "3034",
+    "南亞科": "2408",
+    "創意": "3443",
+    "世芯": "3661", "世芯-KY": "3661",
+    "矽力": "6415", "矽力-KY": "6415",
+    "瑞昱": "2379",
+    "立積": "4968",
+    "晶心科": "6533",
+    "智原": "3035",
+    # 記憶體
+    "華邦電": "2344", "華邦": "2344",
+    "旺宏": "2337",
+    # 封測
+    "京元電": "2449",
+    # PCB / 基板
+    "欣興": "3037",
+    "南電": "8046",
+    "台郡": "6269",
+    "台燿": "6274",
+    "昇貿": "3491",
+    "燿華": "2367",
+    "健鼎": "3044",
+    # 散熱
+    "穩懋": "3105",
+    "通嘉": "8499",
+    "錡光": "3230",
+    # 光通訊
+    "玉晶光": "3406",
+    "森霸": "3489",
+    "泰碩": "6541",
+    # 低軌衛星
+    "碩天": "3617",
+    "介面": "6508",
+    "環旭電": "3047",
+    # 電力設備
+    "亞德客": "1590",
+    "台達電": "2308", "台達": "2308",
+    "東元": "1504",
+    "士電": "1503",
+    "大同": "2371",
+    # 伺服器 / NB / EMS
+    "鴻海": "2317", "富士康": "2317",
+    "廣達": "2382",
+    "緯創": "3231",
+    "英業達": "2356",
+    "和碩": "4938",
+    "仁寶": "2324",
+    "緯穎": "6669",
+    # 消費電子
+    "華碩": "2357",
+    "宏碁": "2353",
+    "研華": "2395",
+    "力成": "6239",
+    # 顯示器
+    "友達": "2409",
+    "群創": "3481",
+    "元太": "8069",
+    # 電信
+    "中華電": "2412", "中華電信": "2412",
+    "遠傳": "4904", "遠傳電信": "4904",
+    "台灣大": "3045", "台灣大哥大": "3045",
+    # 金融 - 銀行
+    "國泰金": "2882", "國泰": "2882",
+    "富邦金": "2881", "富邦": "2881",
+    "玉山金": "2884", "玉山": "2884",
+    "兆豐金": "2886", "兆豐": "2886",
+    "中信金": "2891", "中信": "2891",
+    "第一金": "2892",
+    "合庫金": "5880", "合作金庫": "5880",
+    "永豐金": "2890",
+    "台新金": "2887",
+    "開發金": "2883",
+    "新光金": "2888",
+    "元大金": "2885",
+    "國票金": "2889",
+    "上海商銀": "5876",
+    "群益金鼎": "6005",
+    # 鋼鐵 / 原料
+    "中鋼": "2002",
+    "台塑": "1301",
+    "南亞": "1303",
+    "台化": "1326",
+    "GIS-KY": "6456",
+    # 零售 / 食品
+    "統一超": "2912", "7-11": "2912", "統一超商": "2912",
+    "遠百": "2903",
+    "統一": "1216",
+    "環泥": "1104",
+    "富邦媒": "8454", "momo": "8454",
+    # 航運
+    "長榮": "2603",
+    "陽明": "2609",
+    "萬海": "2615",
+    "長榮航": "2618", "長榮航空": "2618",
+    "華航": "2610", "中華航空": "2610",
+    # 其他
+    "大立光": "3008",
+    "國巨": "2327",
+    "可成": "2474",
+    "光寶科": "2301",
+    "和泰車": "2207",
+    # ETF
+    "元大台灣50": "0050", "台灣50": "0050",
+    "富邦台50": "006208",
+    "元大高股息": "0056",
+    "群益台灣精選高息": "00919",
+    "國泰永續高股息": "00878",
+    "復華台灣科技優息": "00929",
+    "元大台灣價值高息": "00940",
+    "元大台灣高息低波": "00713",
+    "統一FANG+": "00757",
+    "均華": "6504",
+}
+
+TW_ALIASES: dict = {
+    "tsmc": "2330", "umc": "2303", "ase": "3711",
+    "mediatek": "2454", "novatek": "3034", "realtek": "2379",
+    "delta": "2308", "foxconn": "2317", "asus": "2357",
+    "acer": "2353", "quanta": "2382", "wistron": "3231",
+    "cathay": "2882", "fubon": "2881",
+    "chunghwa": "2412", "cht": "2412",
+    "fareastone": "4904", "twm": "3045",
+    "evergreen": "2603", "yangming": "2609", "wanhai": "2615",
+    "china steel": "2002", "formosa": "1301",
+    "uni president": "1216", "largan": "3008", "yageo": "2327",
+}
+
+US_CN_NAME_TO_CODE: dict = {
+    # 科技巨頭
+    "蘋果": "AAPL", "Apple": "AAPL", "apple": "AAPL", "APPLE": "AAPL",
+    "微軟": "MSFT", "Microsoft": "MSFT", "microsoft": "MSFT",
+    "谷歌": "GOOGL", "Google": "GOOGL", "google": "GOOGL", "Alphabet": "GOOGL",
+    "臉書": "META", "Meta": "META", "meta": "META", "Facebook": "META",
+    "亞馬遜": "AMZN", "Amazon": "AMZN", "amazon": "AMZN",
+    "網飛": "NFLX", "Netflix": "NFLX", "netflix": "NFLX",
+    # 半導體
+    "輝達": "NVDA", "英偉達": "NVDA", "NVIDIA": "NVDA", "Nvidia": "NVDA", "nvidia": "NVDA",
+    "超微": "AMD", "超微半導體": "AMD",
+    "英特爾": "INTC", "Intel": "INTC", "intel": "INTC", "INTEL": "INTC",
+    "高通": "QCOM", "Qualcomm": "QCOM", "qualcomm": "QCOM",
+    "博通": "AVGO", "Broadcom": "AVGO", "broadcom": "AVGO",
+    "美光": "MU", "Micron": "MU", "micron": "MU",
+    "德州儀器": "TXN", "Texas Instruments": "TXN",
+    "應材": "AMAT", "Applied Materials": "AMAT",
+    "科林研發": "LRCX", "Lam Research": "LRCX",
+    "科磊": "KLAC", "KLA": "KLAC",
+    "艾司摩爾": "ASML", "ASML": "ASML",
+    "安謀": "ARM", "Arm": "ARM",
+    "美滿電子": "MRVL", "Marvell": "MRVL",
+    "恩智浦": "NXPI", "NXP": "NXPI",
+    "安森美": "ON", "Onsemi": "ON",
+    # 電動車
+    "特斯拉": "TSLA", "Tesla": "TSLA", "tesla": "TSLA", "TESLA": "TSLA",
+    "Rivian": "RIVN", "Lucid": "LCID",
+    # 雲端 / 軟體
+    "甲骨文": "ORCL", "Oracle": "ORCL", "oracle": "ORCL", "ORACLE": "ORCL",
+    "賽富時": "CRM", "Salesforce": "CRM", "salesforce": "CRM",
+    "Adobe": "ADBE", "adobe": "ADBE",
+    "Snowflake": "SNOW", "snowflake": "SNOW",
+    "Palantir": "PLTR", "palantir": "PLTR", "鈀金科技": "PLTR",
+    "ServiceNow": "NOW", "Workday": "WDAY",
+    "Crowdstrike": "CRWD", "CrowdStrike": "CRWD",
+    "Datadog": "DDOG", "MongoDB": "MDB",
+    "Cloudflare": "NET",
+    # 金融
+    "摩根大通": "JPM", "JPMorgan": "JPM",
+    "美國銀行": "BAC", "Bank of America": "BAC",
+    "富國銀行": "WFC", "Wells Fargo": "WFC",
+    "高盛": "GS", "Goldman Sachs": "GS", "Goldman": "GS",
+    "摩根士丹利": "MS", "Morgan Stanley": "MS",
+    "花旗": "C", "Citigroup": "C",
+    "波克夏": "BRK-B", "Berkshire": "BRK-B", "巴菲特": "BRK-B",
+    "Visa": "V", "Mastercard": "MA",
+    "PayPal": "PYPL", "paypal": "PYPL",
+    # 醫療
+    "嬌生": "JNJ", "輝瑞": "PFE", "Pfizer": "PFE", "pfizer": "PFE",
+    "禮來": "LLY", "Eli Lilly": "LLY",
+    "默沙東": "MRK", "Merck": "MRK",
+    "諾和諾德": "NVO", "Novo Nordisk": "NVO",
+    # 消費 / 零售
+    "沃爾瑪": "WMT", "Walmart": "WMT", "walmart": "WMT",
+    "好市多": "COST", "Costco": "COST", "costco": "COST",
+    "麥當勞": "MCD", "McDonald's": "MCD",
+    "星巴克": "SBUX", "Starbucks": "SBUX",
+    "Nike": "NKE", "nike": "NKE",
+    # 其他
+    "波音": "BA", "Boeing": "BA",
+    "迪士尼": "DIS", "Disney": "DIS", "disney": "DIS",
+    "台積電ADR": "TSM", "超微電腦": "SMCI", "Super Micro": "SMCI",
+}
+
+# 從外部檔補充（若存在則合併，不存在也不報錯）
 try:
-    from config.name_lookup import TW_NAME_TO_CODE, TW_ALIASES, US_CN_NAME_TO_CODE
+    from config.name_lookup import (
+        TW_NAME_TO_CODE as _ext_tw,
+        TW_ALIASES as _ext_alias,
+        US_CN_NAME_TO_CODE as _ext_us,
+    )
+    TW_NAME_TO_CODE = {**_ext_tw, **TW_NAME_TO_CODE}   # 內嵌優先
+    TW_ALIASES      = {**_ext_alias, **TW_ALIASES}
+    US_CN_NAME_TO_CODE = {**_ext_us, **US_CN_NAME_TO_CODE}
 except Exception:
-    TW_NAME_TO_CODE: dict = {}
-    TW_ALIASES: dict = {}
-    US_CN_NAME_TO_CODE: dict = {}
+    pass
 
 # ───────────────────────────────────────────────
 # 頁面基本設定（必須是第一個 Streamlit 呼叫）
