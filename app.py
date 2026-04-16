@@ -160,6 +160,90 @@ def fmt(v, suffix="", decimals=1, prefix=""):
         return "N/A"
     return f"{prefix}{v:.{decimals}f}{suffix}"
 
+
+# ───────────────────────────────────────────────
+# 股票名稱解析（支援中英文名稱搜尋）
+# ───────────────────────────────────────────────
+@st.cache_data(ttl=300)
+def _yf_search_us(query: str) -> list[dict]:
+    """用 yfinance Search 找美股，只回傳主要交易所結果"""
+    try:
+        import yfinance as yf
+        s = yf.Search(query, max_results=8)
+        # 只保留主要美股交易所（避免德交所/港交所等干擾）
+        main_exchanges = {'NMS', 'NYQ', 'NGM', 'PCX', 'BATS', 'ASE'}
+        results = []
+        for q in s.quotes:
+            exch = q.get('exchange', '')
+            if exch in main_exchanges:
+                results.append({
+                    'symbol':    q.get('symbol', ''),
+                    'shortname': q.get('shortname') or q.get('longname', ''),
+                    'exch':      q.get('exchDisp', exch),
+                    'type':      q.get('quoteType', 'EQUITY'),
+                })
+        return results
+    except Exception:
+        return []
+
+
+def resolve_ticker(raw: str) -> tuple[str, str, bool]:
+    """
+    將使用者輸入解析為有效的股票代碼。
+    回傳 (ticker_code, display_hint, was_resolved)
+      - ticker_code: 傳給 StockDataFetcher 的代碼（e.g. "2330" 或 "AAPL"）
+      - display_hint: 顯示給使用者的解析訊息（e.g. "台積電 → 2330"）
+      - was_resolved: True 表示輸入是名稱、已被轉換
+    """
+    from config.name_lookup import TW_NAME_TO_CODE, TW_ALIASES, US_CN_NAME_TO_CODE
+
+    text = raw.strip()
+    if not text:
+        return text, "", False
+
+    # ① 已是合法台股代號（4~6位數字，可選後綴如 .TW）
+    _clean = re.sub(r'\.(TW|TWO)$', '', text.upper())
+    if re.match(r'^\d{4,6}[A-Z]?$', _clean):
+        return _clean, "", False
+
+    # ② 名稱查表（優先於純英文代碼判斷，避免 "Apple" 被當成代碼）
+    #    2a. 台股中文名稱精確比對
+    tw_code = TW_NAME_TO_CODE.get(text)
+    if tw_code:
+        return tw_code, f"{text} → {tw_code}", True
+
+    #    2b. 台股英文別名（不分大小寫）
+    tw_code = TW_ALIASES.get(text.lower())
+    if tw_code:
+        return tw_code, f"{text} → {tw_code}", True
+
+    #    2c. 美股中文/英文常見名稱
+    us_code = US_CN_NAME_TO_CODE.get(text)
+    if not us_code:
+        us_code = US_CN_NAME_TO_CODE.get(text.title())   # "apple" → "Apple"
+    if us_code:
+        return us_code, f"{text} → {us_code} (美股)", True
+
+    # ③ 已是合法美股代號（全大寫 1~5 碼，如 AAPL、BRK-B）
+    #    此處故意不做 .upper() 轉換：大小寫混合的輸入走名稱搜尋流程
+    if re.match(r'^[A-Z]{1,5}(-[A-Z])?$', text):
+        return text, "", False
+
+    # ④ 部分比對台股中文名稱（如「台積」→ 台積電 2330）
+    for name, code in TW_NAME_TO_CODE.items():
+        if text in name or name in text:
+            return code, f"{name} → {code}", True
+
+    # ⑤ 美股英文關鍵字搜尋（yfinance Search API）
+    if re.search(r'[a-zA-Z]', text):
+        results = _yf_search_us(text)
+        if results:
+            best = results[0]
+            return best['symbol'], f"{best['shortname']} → {best['symbol']} ({best['exch']})", True
+
+    # 找不到：原樣回傳，讓 StockDataFetcher 去驗證
+    return text, "", False
+
 def color_val(v, good_above=None, bad_above=None, suffix="%", decimals=1):
     """回傳帶色彩 HTML 的數值字串"""
     if v is None:
@@ -441,9 +525,9 @@ def show_welcome():
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("""
-**輸入股票代碼**
-- 台股：輸入4碼數字（如 `2330`、`2454`）
-- 美股：輸入英文代碼（如 `AAPL`、`NVDA`）
+**輸入股票代碼或名稱**
+- 台股：輸入名稱（如 `台積電`）或代碼（如 `2330`）
+- 美股：輸入名稱（如 `Apple`）或代碼（如 `AAPL`）
 - 左側 Sidebar 輸入後點「開始分析」
             """)
         with c2:
@@ -1314,9 +1398,9 @@ def run_stock_overview(stock_input: str):
             is_tw_fmt = re.match(r'^\d{4,6}[A-Z]?$', stock_input.strip().upper())
             st.error(f"❌ 找不到股票代碼「{stock_input}」，Yahoo Finance 查無此代碼。")
             if is_tw_fmt:
-                st.info("📌 台股請輸入代碼（如 2330、0050、00919）。部分冷門 ETF Yahoo Finance 可能尚未收錄。")
+                st.info("📌 台股請輸入4碼數字代碼（如 2330、0050、00919）。部分冷門 ETF 可能尚未收錄。")
             else:
-                st.info("📌 美股請輸入英文代碼（如 AAPL、NVDA、TSLA）。")
+                st.info("📌 支援中文名稱（如「台積電」）、英文名稱（如「Apple」）或股票代碼（如 AAPL、NVDA）。")
             return
 
         hist = fetcher.get_historical_prices(period='1y')
@@ -2187,7 +2271,7 @@ def run_feature1(stock_input: str):
             if is_tw:
                 st.info("📌 台股請輸入代碼（如 2330、0050、00919）。部分冷門 ETF 或新上市商品 Yahoo Finance 可能尚未收錄。")
             else:
-                st.info("📌 美股請輸入英文代碼（如 AAPL、NVDA、TSLA）。")
+                st.info("📌 支援中文名稱（如「台積電」）、英文名稱（如「Apple」）或股票代碼（如 AAPL、NVDA）。")
             return
 
         # ETF 偵測：台股查 TAIWAN_STOCK_INDUSTRY_MAP；美股查 quoteType
@@ -2862,12 +2946,18 @@ def build_sidebar() -> tuple[str, str]:
 
         # 股票輸入
         default_val = st.session_state.get('stock_input', '')
-        stock_input = st.text_input(
-            "🔍 輸入股票代碼",
+        stock_input_raw = st.text_input(
+            "🔍 輸入股票代碼或名稱",
             value=default_val,
-            placeholder="台股:2330  美股:AAPL",
-            help="台股輸入4碼數字，美股輸入英文代碼",
+            placeholder="如：台積電、NVIDIA、2330、AAPL",
+            help="支援中文名稱（台積電）、英文名稱（Apple）或股票代碼（2330、AAPL）",
         )
+
+        # 名稱解析：即時顯示識別提示
+        _resolved_ticker, _resolve_hint, _was_resolved = resolve_ticker(stock_input_raw)
+        if _was_resolved and stock_input_raw.strip():
+            st.success(f"✅ 已識別：{_resolve_hint}", icon=None)
+        stock_input = _resolved_ticker  # 後續流程使用解析後的代碼
 
         run_btn = st.button("🔍 開始分析", type="primary", use_container_width=True)
         st.markdown("---")
