@@ -11,6 +11,14 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 名稱查表（頂層 import，確保 hot-reload 時不失效）
+try:
+    from config.name_lookup import TW_NAME_TO_CODE, TW_ALIASES, US_CN_NAME_TO_CODE
+except Exception:
+    TW_NAME_TO_CODE: dict = {}
+    TW_ALIASES: dict = {}
+    US_CN_NAME_TO_CODE: dict = {}
+
 # ───────────────────────────────────────────────
 # 頁面基本設定（必須是第一個 Streamlit 呼叫）
 # ───────────────────────────────────────────────
@@ -195,54 +203,60 @@ def resolve_ticker(raw: str) -> tuple[str, str, bool]:
       - display_hint: 顯示給使用者的解析訊息（e.g. "台積電 → 2330"）
       - was_resolved: True 表示輸入是名稱、已被轉換
     """
-    from config.name_lookup import TW_NAME_TO_CODE, TW_ALIASES, US_CN_NAME_TO_CODE
+    try:
+        text = raw.strip()
+        if not text:
+            return text, "", False
 
-    text = raw.strip()
-    if not text:
+        # ① 已是合法台股代號（4~6位數字，可選後綴如 .TW）
+        _clean = re.sub(r'\.(TW|TWO)$', '', text.upper())
+        if re.match(r'^\d{4,6}[A-Z]?$', _clean):
+            return _clean, "", False
+
+        # ② 名稱查表（優先於純英文代碼判斷，避免 "Apple" 被當成代碼）
+        #    2a. 台股中文名稱精確比對
+        tw_code = TW_NAME_TO_CODE.get(text)
+        if tw_code:
+            return tw_code, f"{text} → {tw_code}", True
+
+        #    2b. 台股英文別名（不分大小寫）
+        tw_code = TW_ALIASES.get(text.lower())
+        if tw_code:
+            return tw_code, f"{text} → {tw_code}", True
+
+        #    2c. 美股中文/英文常見名稱（原字 → Title case → 全大寫 逐一嘗試）
+        us_code = (US_CN_NAME_TO_CODE.get(text)
+                   or US_CN_NAME_TO_CODE.get(text.title())
+                   or US_CN_NAME_TO_CODE.get(text.upper()))
+        if us_code:
+            return us_code, f"{text} → {us_code} (美股)", True
+
+        # ③ 已是合法美股代號（全大寫 1~5 碼，如 AAPL、BRK-B）
+        #    故意不做 .upper() 轉換：大小寫混合走名稱搜尋流程
+        if re.match(r'^[A-Z]{1,5}(-[A-Z])?$', text):
+            return text, "", False
+
+        # ④ 部分比對台股中文名稱（如「台積」→ 台積電 2330）
+        for name, code in TW_NAME_TO_CODE.items():
+            if text in name or name in text:
+                return code, f"{name} → {code}", True
+
+        # ⑤ 美股英文關鍵字搜尋（yfinance Search API，含 title/upper 變體）
+        if re.search(r'[a-zA-Z]', text):
+            for query in [text, text.title(), text.upper()]:
+                results = _yf_search_us(query)
+                if results:
+                    best = results[0]
+                    sym = best['symbol']
+                    name_str = best['shortname'] or query
+                    return sym, f"{name_str} → {sym} ({best['exch']})", True
+
+        # 找不到：原樣回傳，讓 StockDataFetcher 去驗證
         return text, "", False
 
-    # ① 已是合法台股代號（4~6位數字，可選後綴如 .TW）
-    _clean = re.sub(r'\.(TW|TWO)$', '', text.upper())
-    if re.match(r'^\d{4,6}[A-Z]?$', _clean):
-        return _clean, "", False
-
-    # ② 名稱查表（優先於純英文代碼判斷，避免 "Apple" 被當成代碼）
-    #    2a. 台股中文名稱精確比對
-    tw_code = TW_NAME_TO_CODE.get(text)
-    if tw_code:
-        return tw_code, f"{text} → {tw_code}", True
-
-    #    2b. 台股英文別名（不分大小寫）
-    tw_code = TW_ALIASES.get(text.lower())
-    if tw_code:
-        return tw_code, f"{text} → {tw_code}", True
-
-    #    2c. 美股中文/英文常見名稱
-    us_code = US_CN_NAME_TO_CODE.get(text)
-    if not us_code:
-        us_code = US_CN_NAME_TO_CODE.get(text.title())   # "apple" → "Apple"
-    if us_code:
-        return us_code, f"{text} → {us_code} (美股)", True
-
-    # ③ 已是合法美股代號（全大寫 1~5 碼，如 AAPL、BRK-B）
-    #    此處故意不做 .upper() 轉換：大小寫混合的輸入走名稱搜尋流程
-    if re.match(r'^[A-Z]{1,5}(-[A-Z])?$', text):
-        return text, "", False
-
-    # ④ 部分比對台股中文名稱（如「台積」→ 台積電 2330）
-    for name, code in TW_NAME_TO_CODE.items():
-        if text in name or name in text:
-            return code, f"{name} → {code}", True
-
-    # ⑤ 美股英文關鍵字搜尋（yfinance Search API）
-    if re.search(r'[a-zA-Z]', text):
-        results = _yf_search_us(text)
-        if results:
-            best = results[0]
-            return best['symbol'], f"{best['shortname']} → {best['symbol']} ({best['exch']})", True
-
-    # 找不到：原樣回傳，讓 StockDataFetcher 去驗證
-    return text, "", False
+    except Exception:
+        # 任何意外錯誤都原樣回傳，不影響主流程
+        return raw.strip(), "", False
 
 def color_val(v, good_above=None, bad_above=None, suffix="%", decimals=1):
     """回傳帶色彩 HTML 的數值字串"""
