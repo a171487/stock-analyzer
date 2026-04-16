@@ -381,7 +381,12 @@ class StockDataFetcher:
     # ────────────────────────────────────────────
     def get_historical_prices(self, period: str = "1y") -> pd.DataFrame:
         try:
-            return self._yf_ticker.history(period=period)
+            df = self._yf_ticker.history(period=period)
+            # yfinance sometimes appends today's row with NaN Close (market not yet settled).
+            # Drop those rows so downstream iloc[-1] always returns a valid price.
+            if not df.empty and 'Close' in df.columns:
+                df = df.dropna(subset=['Close'])
+            return df
         except Exception:
             return pd.DataFrame()
 
