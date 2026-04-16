@@ -601,14 +601,19 @@ class RiskSignalDetector:
             df = df.sort_values('date')
 
             # 外資持股比例
+            if 'ForeignInvestmentSharesRatio' not in df.columns or df.empty:
+                return self._tw_insider_fallback()
             df['ForeignInvestmentSharesRatio'] = pd.to_numeric(
                 df['ForeignInvestmentSharesRatio'], errors='coerce')
+            df_valid = df.dropna(subset=['ForeignInvestmentSharesRatio'])
+            if df_valid.empty:
+                return self._tw_insider_fallback()
 
-            ratio_first = float(df['ForeignInvestmentSharesRatio'].iloc[0])
-            ratio_last  = float(df['ForeignInvestmentSharesRatio'].iloc[-1])
+            ratio_first = float(df_valid['ForeignInvestmentSharesRatio'].iloc[0])
+            ratio_last  = float(df_valid['ForeignInvestmentSharesRatio'].iloc[-1])
             ratio_chg   = ratio_last - ratio_first
-            ratio_max   = float(df['ForeignInvestmentSharesRatio'].max())
-            ratio_min   = float(df['ForeignInvestmentSharesRatio'].min())
+            ratio_max   = float(df_valid['ForeignInvestmentSharesRatio'].max())
+            ratio_min   = float(df_valid['ForeignInvestmentSharesRatio'].min())
 
             flags = []
             score = 25
@@ -756,7 +761,7 @@ class RiskSignalDetector:
             comps = {}
 
             # DSRI：Days Sales Receivable Index
-            if all(v is not None and v != 0 for v in [r0, r1, a0]):
+            if all(v is not None and v != 0 for v in [r0, r1, a0, a1]):
                 comps['DSRI'] = (a1/r1) / (a0/r0)
 
             # GMI：Gross Margin Index
@@ -774,7 +779,7 @@ class RiskSignalDetector:
                     comps['AQI'] = ca0 / ca1
 
             # SGI：Sales Growth Index
-            if r0 and r0 != 0:
+            if r0 and r1 is not None and r0 != 0:
                 comps['SGI'] = r1 / r0
 
             # DEPI：Depreciation Index

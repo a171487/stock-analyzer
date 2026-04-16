@@ -110,6 +110,8 @@ def get_bb_signal(hist: pd.DataFrame) -> Tuple[str, str, str]:
 def get_ma_status(hist: pd.DataFrame) -> Dict:
     """回傳均線多空狀態"""
     close = hist['Close'].dropna()
+    if close.empty:
+        return {}
     price = float(close.iloc[-1])
 
     ma_defs = [
